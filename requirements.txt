@@ -1,0 +1,25 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# DÉPENDANCES PYTHON - Robot Interface Eurobot 2026
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Pour installer toutes les dépendances:
+#     pip install -r requirements.txt
+#
+# Note: Tkinter est inclus avec Python (pas besoin de l'installer)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# Interface graphique (inclus avec Python, listé pour documentation)
+# ─────────────────────────────────────────────────────────────────────────────────
+# tkinter - Pas besoin d'installer, inclus avec Python
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# Vision par ordinateur (pour calibration et estimation de position)
+# ─────────────────────────────────────────────────────────────────────────────────
+opencv-contrib-python>=4.5.0
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# Calculs mathématiques et scientifiques
+# ─────────────────────────────────────────────────────────────────────────────────
+numpy>=1.21.0
+scipy>=1.7.0

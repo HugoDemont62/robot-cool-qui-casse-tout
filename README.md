@@ -42,3 +42,71 @@ Ce projet est développé en Python et permet de piloter le robot, gérer ses mo
 - Lecture et analyse des capteurs  
 - Simulation des trajectoires  
 - Logging détaillé des actions
+- **Interface graphique** pour visualiser l'état du robot en temps réel
+
+---
+
+## 🖥️ Interface Graphique
+
+Une interface graphique complète en **Python (Tkinter)** permet de visualiser toutes les statistiques du robot en temps réel.
+
+### Lancement rapide
+
+```bash
+# Mode simulation (pour tester sans robot)
+python main.py --simulation
+
+# Mode normal (avec robot réel via WiFi/Bluetooth)
+python main.py
+```
+
+### Fonctionnalités de l'interface
+
+- 📍 **Position du robot** sur le terrain (vue graphique)
+- 🧭 **Direction** et orientation en temps réel
+- 🔧 **État des roues** (vitesse, direction, encodeurs)
+- 📡 **Capteurs** (LiDAR, ultrasons, capteurs de ligne)
+- 🦾 **Actionneurs** (pince, bras, déployeur de drapeau)
+- 🔋 **Batterie** et statut de connexion
+- ⏱️ **Temps de match** et score
+- 🎯 **Détection ArUco**
+- 🛑 **Bouton d'arrêt d'urgence**
+
+### Documentation complète
+
+Consultez le fichier [INTERFACE_README.md](INTERFACE_README.md) pour :
+- Personnaliser l'interface (ajouter capteurs, actionneurs, panneaux)
+- Intégrer avec votre code de communication robot
+- Modifier les couleurs et l'apparence
+
+---
+
+## 📁 Structure des fichiers
+
+```
+robot-cool-qui-casse-tout/
+├── main.py                 # Point d'entrée de l'interface
+├── robot_state.py          # Gestion de l'état du robot
+├── robot_interface.py      # Interface graphique (Tkinter)
+├── calibration.py          # Calibration caméra
+├── pos_estimation.py       # Estimation position ArUco
+├── requirements.txt        # Dépendances Python
+├── INTERFACE_README.md     # Documentation de l'interface
+└── README.md               # Ce fichier
+```
+
+---
+
+## 🔧 Installation
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/HugoDemont62/robot-cool-qui-casse-tout.git
+cd robot-cool-qui-casse-tout
+
+# Installer les dépendances
+pip install -r requirements.txt
+
+# Lancer l'interface
+python main.py --simulation
+```
