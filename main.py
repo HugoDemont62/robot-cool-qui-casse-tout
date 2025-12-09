@@ -209,58 +209,70 @@ def example_robot_integration():
     from robot_state import RobotStateManager, WheelState
     from robot_interface import RobotInterface
     
+    # Variable pour contrôler l'arrêt propre du thread
+    running = True
+    
     # 1. Créer le gestionnaire d'état
     manager = RobotStateManager()
     
     # 2. Fonction qui simule la réception de données du robot
     #    (Remplacez par votre vrai code de communication)
     def receive_robot_data():
-        """Thread de réception des données du robot."""
-        while True:
-            # ──────────────────────────────────────────────────────────────────
-            # ICI: Votre code pour recevoir les données du robot
-            # Par exemple via socket WiFi ou Bluetooth
-            # ──────────────────────────────────────────────────────────────────
-            
-            # Exemple de données reçues (à remplacer par vos vraies données):
-            robot_data = {
-                'x': 1500,        # Position X en mm
-                'y': 1000,        # Position Y en mm
-                'theta': 45,      # Angle en degrés
-                'battery': 85,    # Batterie en %
-                'wheels': [
-                    {'state': 'forward', 'speed': 60},
-                    {'state': 'forward', 'speed': 60},
-                    {'state': 'forward', 'speed': 60},
-                    {'state': 'forward', 'speed': 60},
-                ],
-                'sensors': [200, 180, 150, 220, 0, 1, 0],  # Valeurs capteurs
-            }
-            
-            # ──────────────────────────────────────────────────────────────────
-            # Mettre à jour le gestionnaire d'état
-            # ──────────────────────────────────────────────────────────────────
-            
-            # Position
-            manager.update_position(
-                x=robot_data['x'],
-                y=robot_data['y'],
-                theta=robot_data['theta']
-            )
-            
-            # Batterie
-            manager.set_battery_level(robot_data['battery'])
-            
-            # Statut connexion
-            manager.set_connected(True)
-            
-            # Roues
-            for i, wheel in enumerate(robot_data['wheels']):
-                manager.update_wheel(i, state=wheel['state'], speed=wheel['speed'])
-            
-            # Capteurs
-            for i, value in enumerate(robot_data['sensors']):
-                manager.update_sensor(i, value)
+        """
+        Thread de réception des données du robot.
+        
+        IMPORTANT: La boucle vérifie 'running' pour permettre un arrêt propre.
+        """
+        while running:
+            try:
+                # ──────────────────────────────────────────────────────────────
+                # ICI: Votre code pour recevoir les données du robot
+                # Par exemple via socket WiFi ou Bluetooth
+                # ──────────────────────────────────────────────────────────────
+                
+                # Exemple de données reçues (à remplacer par vos vraies données):
+                robot_data = {
+                    'x': 1500,        # Position X en mm
+                    'y': 1000,        # Position Y en mm
+                    'theta': 45,      # Angle en degrés
+                    'battery': 85,    # Batterie en %
+                    'wheels': [
+                        {'state': 'forward', 'speed': 60},
+                        {'state': 'forward', 'speed': 60},
+                        {'state': 'forward', 'speed': 60},
+                        {'state': 'forward', 'speed': 60},
+                    ],
+                    'sensors': [200, 180, 150, 220, 0, 1, 0],  # Valeurs capteurs
+                }
+                
+                # ──────────────────────────────────────────────────────────────
+                # Mettre à jour le gestionnaire d'état
+                # ──────────────────────────────────────────────────────────────
+                
+                # Position
+                manager.update_position(
+                    x=robot_data['x'],
+                    y=robot_data['y'],
+                    theta=robot_data['theta']
+                )
+                
+                # Batterie
+                manager.set_battery_level(robot_data['battery'])
+                
+                # Statut connexion
+                manager.set_connected(True)
+                
+                # Roues
+                for i, wheel in enumerate(robot_data['wheels']):
+                    manager.update_wheel(i, state=wheel['state'], speed=wheel['speed'])
+                
+                # Capteurs
+                for i, value in enumerate(robot_data['sensors']):
+                    manager.update_sensor(i, value)
+                
+            except Exception as e:
+                print(f"Erreur de communication: {e}")
+                manager.set_connected(False)
             
             # Pause entre les lectures (ajustez selon votre protocole)
             time.sleep(0.1)
@@ -272,6 +284,9 @@ def example_robot_integration():
     # 4. Créer et lancer l'interface
     interface = RobotInterface(manager)
     interface.run()  # Bloque jusqu'à fermeture
+    
+    # 5. Arrêt propre du thread (quand la fenêtre est fermée)
+    running = False
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

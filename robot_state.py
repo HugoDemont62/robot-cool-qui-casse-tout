@@ -714,7 +714,11 @@ class RobotStateManager:
                     # ─────────────────────────────────────────────────────────
                     # Simulation batterie et détection
                     # ─────────────────────────────────────────────────────────
-                    self._state.battery_level = max(0, self._state.battery_level - 0.01)
+                    # La batterie descend jusqu'à 20% puis remonte (simulation cyclique)
+                    if self._state.battery_level <= 20:
+                        self._state.battery_level = 100.0  # Reset batterie
+                    else:
+                        self._state.battery_level -= 0.05
                     
                     # ArUco détecté aléatoirement (70% du temps)
                     self._state.aruco_detected = random.random() > 0.3

@@ -260,33 +260,54 @@ from robot_interface import RobotInterface
 # 1. Créer le gestionnaire
 manager = RobotStateManager()
 
+# Variable pour contrôler l'arrêt propre
+running = True
+
 # 2. Thread de communication (à adapter selon votre protocole)
 def communication_thread():
     import socket
     
-    # Exemple avec socket WiFi
+    # Configuration avec timeout pour éviter les blocages
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(('192.168.1.100', 5000))  # IP du robot
+    sock.settimeout(5.0)  # Timeout de 5 secondes
     
-    while True:
-        # Recevoir les données
-        data = sock.recv(1024)
-        
-        # Parser les données (format à définir)
-        # Par exemple JSON:
-        import json
-        robot_data = json.loads(data.decode())
-        
-        # Mettre à jour l'interface
-        manager.update_position(
-            x=robot_data['x'],
-            y=robot_data['y'],
-            theta=robot_data['theta']
-        )
-        manager.set_battery_level(robot_data['battery'])
-        manager.set_connected(True)
-        
-        # etc...
+    try:
+        sock.connect(('192.168.1.100', 5000))  # IP du robot
+    except socket.error as e:
+        print(f"Erreur de connexion: {e}")
+        manager.set_connected(False)
+        return
+    
+    while running:
+        try:
+            # Recevoir les données
+            data = sock.recv(1024)
+            if not data:
+                break
+            
+            # Parser les données (format à définir)
+            # Par exemple JSON:
+            import json
+            robot_data = json.loads(data.decode())
+            
+            # Mettre à jour l'interface
+            manager.update_position(
+                x=robot_data['x'],
+                y=robot_data['y'],
+                theta=robot_data['theta']
+            )
+            manager.set_battery_level(robot_data['battery'])
+            manager.set_connected(True)
+            
+            # etc...
+        except socket.timeout:
+            continue  # Réessayer
+        except Exception as e:
+            print(f"Erreur: {e}")
+            manager.set_connected(False)
+            break
+    
+    sock.close()
 
 # 3. Lancer le thread de communication
 comm_thread = threading.Thread(target=communication_thread, daemon=True)

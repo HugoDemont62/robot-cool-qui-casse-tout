@@ -402,6 +402,11 @@ class RobotInterface:
         
         Grille de 500mm, affichée à l'échelle.
         """
+        # Protection contre division par zéro et valeurs invalides
+        if (TERRAIN_REAL_WIDTH <= 0 or TERRAIN_REAL_HEIGHT <= 0 or
+            TERRAIN_DISPLAY_WIDTH <= 0 or TERRAIN_DISPLAY_HEIGHT <= 0):
+            return
+        
         # Facteur d'échelle
         scale_x = TERRAIN_DISPLAY_WIDTH / TERRAIN_REAL_WIDTH
         scale_y = TERRAIN_DISPLAY_HEIGHT / TERRAIN_REAL_HEIGHT
@@ -958,6 +963,11 @@ class RobotInterface:
         
         Convertit les coordonnées mm en pixels et dessine le robot.
         """
+        # Protection contre division par zéro et valeurs invalides
+        if (TERRAIN_REAL_WIDTH <= 0 or TERRAIN_REAL_HEIGHT <= 0 or
+            TERRAIN_DISPLAY_WIDTH <= 0 or TERRAIN_DISPLAY_HEIGHT <= 0):
+            return
+        
         # Facteur d'échelle
         scale_x = TERRAIN_DISPLAY_WIDTH / TERRAIN_REAL_WIDTH
         scale_y = TERRAIN_DISPLAY_HEIGHT / TERRAIN_REAL_HEIGHT
