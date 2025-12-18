@@ -7,13 +7,14 @@ Version: 1.0.0
 import tkinter as tk
 from tkinter import ttk, messagebox
 import math
-from typing import Optional
+from typing import Optional, Literal, cast, Any
 from robot_state import RobotStateManager, RobotState, RobotMode, WheelState
 try:
     import ttkbootstrap as tb
     TB_AVAILABLE = True
 except Exception:
     TB_AVAILABLE = False
+
 
 
 
@@ -41,6 +42,16 @@ COLORS = {
 }
 
 UPDATE_INTERVAL_MS = 100
+
+# Constantes typées pour satisfaire le vérificateur de type (Literal attendu)
+FILL_X = cast(Literal["x"], tk.X)
+FILL_BOTH = cast(Literal["both"], tk.BOTH)
+SIDE_LEFT = cast(Literal["left"], tk.LEFT)
+SIDE_RIGHT = cast(Literal["right"], tk.RIGHT)
+SIDE_TOP = cast(Literal["top"], tk.TOP)
+SIDE_BOTTOM = cast(Literal["bottom"], tk.BOTTOM)
+ANCHOR_W = cast(Literal["w"], tk.W)
+ARROW_LAST = cast(Literal["last"], tk.LAST)
 
 
 class RobotInterface:
@@ -95,48 +106,48 @@ class RobotInterface:
 
     def _build_layout(self):
         header = ttk.Frame(self.root, style="Header.TFrame", padding=(12, 8))
-        header.pack(fill=tk.X)
+        header.pack(fill=FILL_X)
 
         title = ttk.Label(header, text="🤖 Robot cool qui casse tout", style="Header.TLabel")
-        title.pack(side=tk.LEFT)
+        title.pack(side=SIDE_LEFT)
 
         right_info = ttk.Frame(header, style="Header.TFrame")
-        right_info.pack(side=tk.RIGHT)
+        right_info.pack(side=SIDE_RIGHT)
 
         self.connection_label = ttk.Label(right_info, text="● DÉCONNECTÉ", style="Header.TLabel")
-        self.connection_label.pack(side=tk.LEFT, padx=8)
+        self.connection_label.pack(side=SIDE_LEFT, padx=8)
 
         self.mode_label = ttk.Label(right_info, text="Mode: IDLE", style="Header.TLabel")
-        self.mode_label.pack(side=tk.LEFT, padx=8)
+        self.mode_label.pack(side=SIDE_LEFT, padx=8)
 
         self.battery_label = ttk.Label(right_info, text="🔋 100%", style="Header.TLabel")
-        self.battery_label.pack(side=tk.LEFT, padx=8)
+        self.battery_label.pack(side=SIDE_LEFT, padx=8)
 
         main = ttk.Frame(self.root)
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main.pack(fill=FILL_BOTH, expand=True, padx=12, pady=12)
 
         left = ttk.Frame(main, width=560)
-        left.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 10), expand=False)
+        left.pack(side=SIDE_LEFT, fill=FILL_BOTH, padx=(0, 10), expand=False)
 
         terrain_title = ttk.Label(left, text="📍 Vue du Terrain", style="Accent.TLabel")
-        terrain_title.pack(anchor=tk.W)
+        terrain_title.pack(anchor=ANCHOR_W)
 
         self._create_terrain_canvas(left)
 
         legend_frame = ttk.Frame(left)
-        legend_frame.pack(fill=tk.X, pady=(8, 0))
+        legend_frame.pack(fill=FILL_X, pady=(8, 0))
 
         self.coord_label = ttk.Label(legend_frame, text="Position: X=0mm, Y=0mm, θ=0°", style="Small.TLabel")
-        self.coord_label.pack(anchor=tk.W)
+        self.coord_label.pack(anchor=ANCHOR_W)
 
         self.velocity_label = ttk.Label(legend_frame, text="Vitesse: 0 mm/s | Rotation: 0 °/s", style="Small.TLabel")
-        self.velocity_label.pack(anchor=tk.W)
+        self.velocity_label.pack(anchor=ANCHOR_W)
 
         right = ttk.Frame(main)
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True)
 
         tabs = ttk.Notebook(right)
-        tabs.pack(fill=tk.BOTH, expand=True)
+        tabs.pack(fill=FILL_BOTH, expand=True)
 
         pos_tab = ttk.Frame(tabs, style='TFrame')
         wheels_tab = ttk.Frame(tabs, style='TFrame')
@@ -157,17 +168,17 @@ class RobotInterface:
         self._create_detection_panel(detection_tab)
 
         controls = ttk.Frame(self.root)
-        controls.pack(fill=tk.X, side=tk.BOTTOM, pady=(0, 8))
+        controls.pack(fill=FILL_X, side=SIDE_BOTTOM, pady=(0, 8))
 
         self.emergency_btn = ttk.Button(controls, text="🛑 ARRÊT D'URGENCE", style="Danger.TButton", command=self._on_emergency_stop)
         if TB_AVAILABLE:
             self.emergency_btn = tb.Button(controls, text="🛑 ARRÊT D'URGENCE", bootstyle="danger", command=self._on_emergency_stop)
-        self.emergency_btn.pack(side=tk.LEFT, padx=12, pady=6)
+        self.emergency_btn.pack(side=SIDE_LEFT, padx=12, pady=6)
 
         modes_frame = ttk.Frame(controls)
-        modes_frame.pack(side=tk.LEFT, padx=12)
+        modes_frame.pack(side=SIDE_LEFT, padx=12)
 
-        ttk.Label(modes_frame, text="Mode:", style="Small.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(modes_frame, text="Mode:", style="Small.TLabel").pack(side=SIDE_LEFT, padx=(0, 6))
 
         self.mode_buttons = {}
         for mode in [RobotMode.IDLE, RobotMode.MANUAL, RobotMode.AUTONOMOUS]:
@@ -175,14 +186,14 @@ class RobotInterface:
                 b = tb.Button(modes_frame, text=mode.value.upper(), bootstyle="primary-outline", command=lambda m=mode: self._on_mode_change(m))
             else:
                 b = ttk.Button(modes_frame, text=mode.value.upper(), style="Primary.TButton", command=lambda m=mode: self._on_mode_change(m))
-            b.pack(side=tk.LEFT, padx=4)
+            b.pack(side=SIDE_LEFT, padx=4)
             self.mode_buttons[mode.value] = b
 
         if TB_AVAILABLE:
             self.sim_btn = tb.Button(controls, text="▶️ Démarrer Simulation", bootstyle="success", command=self._on_toggle_simulation)
         else:
             self.sim_btn = ttk.Button(controls, text="▶️ Démarrer Simulation", style="Primary.TButton", command=self._on_toggle_simulation)
-        self.sim_btn.pack(side=tk.RIGHT, padx=12)
+        self.sim_btn.pack(side=SIDE_RIGHT, padx=12)
 
         self._simulation_running = False
 
@@ -245,7 +256,7 @@ class RobotInterface:
     
     def _create_position_panel(self, parent):
         frame = ttk.Frame(parent, padding=8)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=FILL_BOTH, expand=True)
 
         self.position_labels = {}
         
@@ -259,17 +270,17 @@ class RobotInterface:
         
         for name, default in values:
             row = ttk.Frame(frame)
-            row.pack(fill=tk.X, pady=6)
+            row.pack(fill=FILL_X, pady=6)
 
-            ttk.Label(row, text=f"{name}:", style="Small.TLabel", width=12).pack(side=tk.LEFT)
+            ttk.Label(row, text=f"{name}:", style="Small.TLabel", width=12).pack(side=SIDE_LEFT)
 
             v = ttk.Label(row, text=default, style="Accent.TLabel")
-            v.pack(side=tk.LEFT)
+            v.pack(side=SIDE_LEFT)
             self.position_labels[name] = v
 
     def _create_wheels_panel(self, parent):
         frame = ttk.Frame(parent, padding=8)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=FILL_BOTH, expand=True)
 
         self.wheel_labels = []
         
@@ -277,87 +288,87 @@ class RobotInterface:
 
         for n in names:
             row = ttk.Frame(frame)
-            row.pack(fill=tk.X, pady=6)
+            row.pack(fill=FILL_X, pady=6)
 
-            ttk.Label(row, text=f"{n}:", style="Small.TLabel", width=14).pack(side=tk.LEFT)
+            ttk.Label(row, text=f"{n}:", style="Small.TLabel", width=14).pack(side=SIDE_LEFT)
 
             indicator = ttk.Label(row, text="■", foreground=COLORS['wheel_stopped'])
-            indicator.pack(side=tk.LEFT, padx=6)
+            indicator.pack(side=SIDE_LEFT, padx=6)
 
             state_label = ttk.Label(row, text="ARRÊT", style="Small.TLabel", width=10)
-            state_label.pack(side=tk.LEFT)
+            state_label.pack(side=SIDE_LEFT)
 
             speed = ttk.Label(row, text="0 RPM", style="Accent.TLabel", width=10)
-            speed.pack(side=tk.LEFT, padx=8)
+            speed.pack(side=SIDE_LEFT, padx=8)
 
             self.wheel_labels.append({'indicator': indicator, 'state': state_label, 'speed': speed})
 
     def _create_sensors_panel(self, parent):
         frame = ttk.Frame(parent, padding=8)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=FILL_BOTH, expand=True)
 
         self.sensor_labels = []
         
         state = self.state_manager.get_state()
         for sensor in state.sensors:
             row = ttk.Frame(frame)
-            row.pack(fill=tk.X, pady=6)
+            row.pack(fill=FILL_X, pady=6)
 
             display = sensor.name
 
-            ttk.Label(row, text=f"{display}:", style="Small.TLabel", width=14).pack(side=tk.LEFT)
+            ttk.Label(row, text=f"{display}:", style="Small.TLabel", width=14).pack(side=SIDE_LEFT)
 
             if sensor.unit == "mm":
                 p = ttk.Progressbar(row, length=140, mode='determinate', maximum=500)
-                p.pack(side=tk.LEFT, padx=6)
+                p.pack(side=SIDE_LEFT, padx=6)
             else:
                 p = None
 
             v = ttk.Label(row, text=f"0 {sensor.unit}", style="Accent.TLabel", width=12)
-            v.pack(side=tk.LEFT)
+            v.pack(side=SIDE_LEFT)
 
             self.sensor_labels.append({'label': v, 'progress': p, 'unit': sensor.unit})
 
     def _create_actuators_panel(self, parent):
         frame = ttk.Frame(parent, padding=8)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=FILL_BOTH, expand=True)
 
         self.actuator_labels = []
         
         state = self.state_manager.get_state()
         for actuator in state.actuators:
             row = ttk.Frame(frame)
-            row.pack(fill=tk.X, pady=6)
+            row.pack(fill=FILL_X, pady=6)
 
             display = actuator.name
 
-            ttk.Label(row, text=f"{display}:", style="Small.TLabel", width=14).pack(side=tk.LEFT)
+            ttk.Label(row, text=f"{display}:", style="Small.TLabel", width=14).pack(side=SIDE_LEFT)
 
             enabled = ttk.Label(row, text="OFF", foreground=COLORS['danger'])
-            enabled.pack(side=tk.LEFT, padx=6)
+            enabled.pack(side=SIDE_LEFT, padx=6)
 
             p = ttk.Progressbar(row, length=120, mode='determinate', maximum=100)
-            p.pack(side=tk.LEFT, padx=6)
+            p.pack(side=SIDE_LEFT, padx=6)
 
             pos = ttk.Label(row, text="0%", style="Accent.TLabel", width=6)
-            pos.pack(side=tk.LEFT)
+            pos.pack(side=SIDE_LEFT)
 
             self.actuator_labels.append({'enabled': enabled, 'progress': p, 'position': pos})
 
     def _create_detection_panel(self, parent):
         frame = ttk.Frame(parent, padding=8)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=FILL_BOTH, expand=True)
 
-        ttk.Label(frame, text="Statut:", style="Small.TLabel", width=12).pack(side=tk.LEFT)
+        ttk.Label(frame, text="Statut:", style="Small.TLabel", width=12).pack(side=SIDE_LEFT)
 
         self.aruco_status_label = ttk.Label(frame, text="❌ Non détecté", foreground=COLORS['danger'])
-        self.aruco_status_label.pack(side=tk.LEFT)
-        
-        ttk.Label(frame, text="IDs:", style="Small.TLabel", width=8).pack(side=tk.LEFT, padx=(16, 2))
+        self.aruco_status_label.pack(side=SIDE_LEFT)
+
+        ttk.Label(frame, text="IDs:", style="Small.TLabel", width=8).pack(side=SIDE_LEFT, padx=(16, 2))
 
         self.aruco_ids_label = ttk.Label(frame, text="-", style="Accent.TLabel")
-        self.aruco_ids_label.pack(side=tk.LEFT)
-    
+        self.aruco_ids_label.pack(side=SIDE_LEFT)
+
     def _on_emergency_stop(self):
         self.state_manager.set_emergency_stop(True)
         messagebox.showwarning("Arrêt d'urgence", "ARRÊT D'URGENCE ACTIVÉ!\nToutes les roues sont arrêtées.")
@@ -382,7 +393,9 @@ class RobotInterface:
     
     def _schedule_update(self):
         self._update_display()
-        self.root.after(UPDATE_INTERVAL_MS, lambda: self._schedule_update())
+        # passer la fonction directement supprime l'erreur liée aux args
+        # appelez after via un cast pour calmer le vérificateur de type
+        cast(Any, self.root.after)(UPDATE_INTERVAL_MS, self._schedule_update)
 
     def _update_display(self):
         state = self.state_manager.get_state()
@@ -448,7 +461,7 @@ class RobotInterface:
             x_px, y_px, end_x, end_y,
             fill=COLORS['robot_direction'],
             width=3,
-            arrow='last'
+            arrow=ARROW_LAST
         )
         
         self.coord_label.config(text=f"Position: X={state.position.x:.0f}mm, Y={state.position.y:.0f}mm, θ={state.direction:.1f}°")
