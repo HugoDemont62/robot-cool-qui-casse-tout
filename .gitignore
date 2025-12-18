@@ -1,0 +1,86 @@
+# Python bytecode, caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+wheels/
+*.egg
+*.whl
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# Type check / caches
+.mypy_cache/
+.pytype/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# Editor temporary files
+*~
+*.bak
+*.swp
+*.tmp
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+
+# Environment variables / secrets
+.env
+.env.*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Misc
+.ropeproject/
+.python-version
+
+# Node (if any)
+node_modules/
+npm-debug.log
+
+# Ignore build artifacts from poetry / pip
+.python-eggs/
+
+# Optional: ignore local JetBrains shelf/patches
+.idea/shelf/
+
