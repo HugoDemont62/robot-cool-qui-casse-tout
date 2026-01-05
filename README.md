@@ -1,5 +1,5 @@
 # Eurobot 2026 - Robot Control Python
-
+[![wakatime](https://wakatime.com/badge/user/14fe3c61-8f4f-4dd2-b75c-eff28a472911/project/97255df1-cb63-4d77-9c1b-7cfa4b3b42ca.svg)](https://wakatime.com/badge/user/14fe3c61-8f4f-4dd2-b75c-eff28a472911/project/97255df1-cb63-4d77-9c1b-7cfa4b3b42ca)
 [![Team](https://img.shields.io/badge/Team-Pas%20encore%20ing%C3%A9nieur-blue)]()
 [![Robot](https://img.shields.io/badge/Robot-Robot%20cool%20qui%20casse%20tout-red)]()
 [![Python](https://img.shields.io/badge/Python-3.10%2B-yellow)]()
@@ -110,3 +110,4 @@ pip install -r requirements.txt
 # Lancer l'interface
 python main.py --simulation
 ```
+
