@@ -27,3 +27,6 @@ scipy>=1.7.0
 ttkbootstrap>=1.6.0
 
 opencv-python
+
+# SSH remote execution
+paramiko>=2.11.0

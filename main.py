@@ -69,6 +69,19 @@ Pour plus d'informations, consultez le README.md
     else:
         print("📡 Mode NORMAL - En attente de données du robot")
         print("   (Utilisez --simulation pour tester sans robot réel)")
+        # Tentative de connexion SSH au Raspberry pour lancer le script distant
+        try:
+            # import local pour ne pas imposer paramiko si l'utilisateur reste en simulation
+            from robot_ssh import start_test_on_pi
+            print("🔌 Tentative de connexion SSH à PEI.local pour lancer test.py...")
+            try:
+                logfile = start_test_on_pi(hostname="PEI.local", username="admin", password="admin", remote_path="test.py")
+                print(f"✅ Script distant lancé. Journal distant attendu: {logfile}")
+            except Exception as e:
+                print(f"⚠️ Impossible de lancer le script distant via SSH: {e}")
+        except Exception:
+            # robot_ssh absent ou paramiko non installé — on continue sans crash
+            print("⚠️ Module robot_ssh non disponible ou paramiko manquant — saut de la tentative SSH")
 
     print("🖥️  Création de l'interface graphique...")
     interface = RobotInterface(state_manager)
