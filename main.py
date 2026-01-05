@@ -75,7 +75,7 @@ Pour plus d'informations, consultez le README.md
             from robot_ssh import start_test_on_pi
             print("🔌 Tentative de connexion SSH à PEI.local pour lancer test.py...")
             try:
-                logfile = start_test_on_pi(hostname="PEI.local", username="admin", password="admin", remote_path="test.py")
+                logfile = start_test_on_pi(hostname="PEI.local", username="admin", password="admin")
                 print(f"✅ Script distant lancé. Journal distant attendu: {logfile}")
             except Exception as e:
                 print(f"⚠️ Impossible de lancer le script distant via SSH: {e}")

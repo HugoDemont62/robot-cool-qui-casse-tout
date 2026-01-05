@@ -15,6 +15,30 @@ try:
 except Exception:
     TB_AVAILABLE = False
 
+import threading
+import time
+import importlib
+_robot_serial_module = None
+try:
+    _robot_serial_module = importlib.import_module('robot_serial')
+    RobotSerial = getattr(_robot_serial_module, 'RobotSerial')
+    SERIAL_AVAILABLE = True
+except Exception:
+    RobotSerial = None
+    SERIAL_AVAILABLE = False
+
+# SSH interactive support
+_robot_ssh_module = None
+try:
+    _robot_ssh_module = importlib.import_module('robot_ssh')
+    SSHInteractive = getattr(_robot_ssh_module, 'SSHInteractive')
+    start_test_on_pi = getattr(_robot_ssh_module, 'start_test_on_pi')
+    SSH_AVAILABLE = True
+except Exception:
+    SSHInteractive = None
+    start_test_on_pi = None
+    SSH_AVAILABLE = False
+
 
 
 
@@ -154,18 +178,22 @@ class RobotInterface:
         sensors_tab = ttk.Frame(tabs, style='TFrame')
         actuators_tab = ttk.Frame(tabs, style='TFrame')
         detection_tab = ttk.Frame(tabs, style='TFrame')
+        # Terminal tab
+        terminal_tab = ttk.Frame(tabs, style='TFrame')
 
         tabs.add(pos_tab, text="Position")
         tabs.add(wheels_tab, text="Roues")
         tabs.add(sensors_tab, text="Capteurs")
         tabs.add(actuators_tab, text="Actionneurs")
         tabs.add(detection_tab, text="ArUco")
+        tabs.add(terminal_tab, text="Terminal")
 
         self._create_position_panel(pos_tab)
         self._create_wheels_panel(wheels_tab)
         self._create_sensors_panel(sensors_tab)
         self._create_actuators_panel(actuators_tab)
         self._create_detection_panel(detection_tab)
+        self._create_terminal_panel(terminal_tab)
 
         controls = ttk.Frame(self.root)
         controls.pack(fill=FILL_X, side=SIDE_BOTTOM, pady=(0, 8))
@@ -196,6 +224,9 @@ class RobotInterface:
         self.sim_btn.pack(side=SIDE_RIGHT, padx=12)
 
         self._simulation_running = False
+        # SSH interactive session (created on demand)
+        self._ssh_session: Optional[object] = None
+        self._ssh_connected = False
 
     def _create_terrain_canvas(self, parent):
         container = ttk.Frame(parent)
@@ -369,25 +400,155 @@ class RobotInterface:
         self.aruco_ids_label = ttk.Label(frame, text="-", style="Accent.TLabel")
         self.aruco_ids_label.pack(side=SIDE_LEFT)
 
-    def _on_emergency_stop(self):
-        self.state_manager.set_emergency_stop(True)
-        messagebox.showwarning("Arrêt d'urgence", "ARRÊT D'URGENCE ACTIVÉ!\nToutes les roues sont arrêtées.")
+    def _create_terminal_panel(self, parent):
+        frame = ttk.Frame(parent, padding=8)
+        frame.pack(fill=FILL_BOTH, expand=True)
 
-    def _on_mode_change(self, mode: RobotMode):
-        if self.state_manager.get_state().emergency_stop_active:
-            self.state_manager.set_emergency_stop(False)
-        self.state_manager.set_mode(mode.value)
-    
-    def _on_toggle_simulation(self):
-        if self._simulation_running:
-            self.state_manager.stop_simulation()
-            self.sim_btn.config(text="▶️ Démarrer Simulation")
-            self._simulation_running = False
+        # Connection frame (host/user/pass)
+        conn_row = ttk.Frame(frame)
+        conn_row.pack(fill=FILL_X, pady=(0, 6))
+
+        ttk.Label(conn_row, text="Hôte:", style="Small.TLabel").pack(side=SIDE_LEFT)
+        self.ssh_host = ttk.Entry(conn_row, width=18)
+        self.ssh_host.insert(0, "PEI.local")
+        self.ssh_host.pack(side=SIDE_LEFT, padx=(4, 8))
+
+        ttk.Label(conn_row, text="User:", style="Small.TLabel").pack(side=SIDE_LEFT)
+        self.ssh_user = ttk.Entry(conn_row, width=10)
+        self.ssh_user.insert(0, "admin")
+        self.ssh_user.pack(side=SIDE_LEFT, padx=(4, 8))
+
+        ttk.Label(conn_row, text="Pass:", style="Small.TLabel").pack(side=SIDE_LEFT)
+        self.ssh_pass = ttk.Entry(conn_row, width=12, show="*")
+        self.ssh_pass.insert(0, "admin")
+        self.ssh_pass.pack(side=SIDE_LEFT, padx=(4, 8))
+
+        self.ssh_connect_btn = ttk.Button(conn_row, text="🔌 Connecter", command=self._on_ssh_toggle)
+        self.ssh_connect_btn.pack(side=SIDE_LEFT, padx=6)
+
+        self.ssh_start_remote_btn = ttk.Button(conn_row, text="▶️ Lancer test.py", command=self._on_ssh_start_remote)
+        self.ssh_start_remote_btn.pack(side=SIDE_LEFT, padx=6)
+
+        # Terminal output
+        out_frame = ttk.Frame(frame)
+        out_frame.pack(fill=FILL_BOTH, expand=True)
+
+        self.term_text = tk.Text(out_frame, height=18, wrap='none', bg='#000000', fg='#dbeaf8')
+        self.term_text.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True)
+        self.term_text.configure(state='disabled')
+
+        scrollbar_v = ttk.Scrollbar(out_frame, orient='vertical', command=self.term_text.yview)
+        scrollbar_v.pack(side=SIDE_RIGHT, fill=SIDE_BOTTOM)
+        self.term_text['yscrollcommand'] = scrollbar_v.set
+
+        # Input row
+        input_row = ttk.Frame(frame)
+        input_row.pack(fill=FILL_X, pady=(8, 0))
+
+        self.term_entry = ttk.Entry(input_row)
+        self.term_entry.pack(side=SIDE_LEFT, fill=FILL_X, expand=True, padx=(0, 8))
+        self.term_entry.bind('<Return>', lambda e: self._on_ssh_send())
+
+        self.term_send_btn = ttk.Button(input_row, text="Envoyer", command=self._on_ssh_send)
+        self.term_send_btn.pack(side=SIDE_LEFT)
+
+        # Quick control buttons inspired by control_robot.py
+        ctrl_row = ttk.Frame(frame)
+        ctrl_row.pack(fill=FILL_X, pady=(8, 0))
+
+        def make_btn(text, cmd):
+            b = ttk.Button(ctrl_row, text=text, command=lambda: self._send_move_command(cmd))
+            b.pack(side=SIDE_LEFT, padx=4)
+            return b
+
+        make_btn("Z Avancer", "MOVE forward 200")
+        make_btn("S Reculer", "MOVE backward 200")
+        make_btn("Q Gauche", "MOVE left 200")
+        make_btn("D Droite", "MOVE right 200")
+        make_btn("A Rot G.", "MOVE rotateCCW 200")
+        make_btn("E Rot D.", "MOVE rotateCW 200")
+        make_btn("STOP", "MOVE stop 0")
+
+        # disable SSH controls if paramiko/robot_ssh not available
+        if not SSH_AVAILABLE:
+            self.ssh_connect_btn.config(state='disabled')
+            self.ssh_start_remote_btn.config(state='disabled')
+            self._append_terminal_output("SSH non disponible (paramiko manquant). Installez paramiko et relancez l'application.\n")
+
+    def _append_terminal_output(self, text: str):
+        try:
+            self.term_text.configure(state='normal')
+            self.term_text.insert(tk.END, text)
+            self.term_text.see(tk.END)
+            self.term_text.configure(state='disabled')
+        except Exception:
+            pass
+
+    def _on_ssh_toggle(self):
+        if not SSH_AVAILABLE:
+            messagebox.showerror("SSH non disponible", "Le module robot_ssh/paramiko n'est pas installé.")
+            return
+        if not self._ssh_connected:
+            host = self.ssh_host.get().strip() or "PEI.local"
+            user = self.ssh_user.get().strip() or "admin"
+            pwd = self.ssh_pass.get()
+            try:
+                self._ssh_session = SSHInteractive(hostname=host, username=user, password=pwd)
+                self._ssh_session.connect()
+                self._ssh_session.set_output_callback(self._append_terminal_output)
+                self._ssh_session.start_shell()
+                self._ssh_connected = True
+                self.ssh_connect_btn.config(text="🔌 Déconnecter")
+                self._append_terminal_output(f"✅ Connecté à {host}\n")
+            except Exception as e:
+                messagebox.showerror("Échec SSH", f"Impossible de se connecter: {e}")
+                self._ssh_session = None
+                self._ssh_connected = False
         else:
-            self.state_manager.start_simulation()
-            self.sim_btn.config(text="⏹️ Arrêter Simulation")
-            self._simulation_running = True
-    
+            try:
+                if self._ssh_session:
+                    self._ssh_session.close()
+            finally:
+                self._ssh_session = None
+                self._ssh_connected = False
+                self.ssh_connect_btn.config(text="🔌 Connecter")
+                self._append_terminal_output("🔌 Déconnecté\n")
+
+    def _on_ssh_start_remote(self):
+        if not self._ssh_connected or not self._ssh_session:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord au Raspberry via SSH.")
+            return
+        try:
+            # lance test.py dans le shell (non-detach) pour voir la sortie
+            self._ssh_session.send("python3 test.py")
+            self._append_terminal_output("▶️ Commande envoyée: python3 test.py\n")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de lancer le script distant: {e}")
+
+    def _on_ssh_send(self):
+        if not self._ssh_connected or not self._ssh_session:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord au Raspberry via SSH.")
+            return
+        txt = self.term_entry.get()
+        if not txt:
+            return
+        try:
+            self._ssh_session.send(txt)
+            self.term_entry.delete(0, tk.END)
+        except Exception as e:
+            messagebox.showerror("Erreur envoi", f"Impossible d'envoyer la commande: {e}")
+
+    def _send_move_command(self, cmd: str):
+        # Envoie des commandes MOVE via la session SSH shell
+        if not self._ssh_connected or not self._ssh_session:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord au Raspberry via SSH.")
+            return
+        try:
+            self._ssh_session.send(cmd)
+            self._append_terminal_output(f"→ {cmd}\n")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Erreur en envoyant la commande: {e}")
+
     def _on_state_update(self, state: RobotState):
         self._last_state = state
     
@@ -520,11 +681,38 @@ class RobotInterface:
             self.aruco_status_label.config(text="❌ Non détecté", foreground=COLORS['danger'])
             self.aruco_ids_label.config(text="-")
     
+    def _on_emergency_stop(self):
+        self.state_manager.set_emergency_stop(True)
+        messagebox.showwarning("Arrêt d'urgence", "ARRÊT D'URGENCE ACTIVÉ!\nToutes les roues sont arrêtées.")
+
+    def _on_mode_change(self, mode: RobotMode):
+        if self.state_manager.get_state().emergency_stop_active:
+            self.state_manager.set_emergency_stop(False)
+        self.state_manager.set_mode(mode.value)
+
+    def _on_toggle_simulation(self):
+        if self._simulation_running:
+            self.state_manager.stop_simulation()
+            self.sim_btn.config(text="▶️ Démarrer Simulation")
+            self._simulation_running = False
+        else:
+            self.state_manager.start_simulation()
+            self.sim_btn.config(text="⏹️ Arrêter Simulation")
+            self._simulation_running = True
+
     def _on_close(self):
         if self._simulation_running:
             self.state_manager.stop_simulation()
-        self.root.destroy()
-    
+        # ensure SSH closed
+        try:
+            if hasattr(self, '_ssh_session') and self._ssh_session:
+                try:
+                    self._ssh_session.close()
+                except Exception:
+                    pass
+        finally:
+            self.root.destroy()
+
     def run(self):
         print("Robot Interface - démarrée")
         self.root.mainloop()

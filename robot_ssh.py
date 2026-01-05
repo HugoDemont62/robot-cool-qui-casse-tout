@@ -84,3 +84,108 @@ def start_test_on_pi(hostname: str = "PEI.local", username: str = "admin",
         return logfile
     finally:
         runner.close()
+
+
+class SSHInteractive:
+    """
+    Fournit une session shell interactive via paramiko.
+    - connect(): ouvre la connexion
+    - start_shell(remote_cmd=None): ouvre un shell et exécute opcionallement remote_cmd
+    - send(text): envoie du texte au shell (ajoute un \n si nécessaire)
+    - set_output_callback(cb): callback appelée pour chaque bloc de sortie reçu (str)
+    - close(): ferme la connexion
+    """
+    def __init__(self, hostname: str = "PEI.local", username: str = "admin",
+                 password: str = "admin", port: int = 22, timeout: int = 10,
+                 recv_buffer: int = 1024):
+        self.hostname = hostname
+        self.username = username
+        self.password = password
+        self.port = port
+        self.timeout = timeout
+        self.recv_buffer = recv_buffer
+        self._client: Optional[Any] = None
+        self._chan = None
+        self._out_cb = None
+        self._reader_thread = None
+        self._stop_reader = False
+
+    def connect(self) -> None:
+        if not PARAMIKO_AVAILABLE:
+            raise RuntimeError("paramiko n'est pas installé; ajoutez-le à requirements.txt")
+        if self._client is not None:
+            return
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(hostname=self.hostname, port=self.port,
+                       username=self.username, password=self.password,
+                       timeout=self.timeout)
+        self._client = client
+
+    def start_shell(self, remote_cmd: Optional[str] = None) -> None:
+        if self._client is None:
+            raise RuntimeError("Client SSH non connecté")
+        # open a pty to have interactive behavior
+        self._chan = self._client.invoke_shell()
+        self._stop_reader = False
+        # Optionally run a command after opening shell
+        if remote_cmd:
+            self.send(remote_cmd)
+
+        # start reader thread
+        def reader():
+            try:
+                while not self._stop_reader and self._chan and not self._chan.closed:
+                    if self._chan.recv_ready():
+                        data = self._chan.recv(self.recv_buffer)
+                        if not data:
+                            break
+                        text = data.decode(errors='ignore')
+                        if self._out_cb:
+                            try:
+                                self._out_cb(text)
+                            except Exception:
+                                pass
+                    else:
+                        time.sleep(0.05)
+            except Exception:
+                pass
+
+        import threading
+        self._reader_thread = threading.Thread(target=reader, daemon=True)
+        self._reader_thread.start()
+
+    def send(self, text: str) -> None:
+        if self._chan is None:
+            raise RuntimeError("Shell non démarrée")
+        if not text.endswith('\n'):
+            text = text + '\n'
+        try:
+            self._chan.send(text)
+        except Exception as e:
+            raise
+
+    def set_output_callback(self, cb):
+        self._out_cb = cb
+
+    def close(self) -> None:
+        try:
+            self._stop_reader = True
+            if self._reader_thread:
+                self._reader_thread.join(timeout=0.5)
+            if self._chan:
+                try:
+                    self._chan.close()
+                except Exception:
+                    pass
+            if self._client:
+                try:
+                    self._client.close()
+                except Exception:
+                    pass
+        finally:
+            self._chan = None
+            self._client = None
+            self._reader_thread = None
+            self._out_cb = None
+
