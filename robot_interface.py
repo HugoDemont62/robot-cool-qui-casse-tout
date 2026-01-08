@@ -15,8 +15,6 @@ try:
 except Exception:
     TB_AVAILABLE = False
 
-import threading
-import time
 import importlib
 _robot_serial_module = None
 try:
@@ -721,3 +719,4 @@ if __name__ == "__main__":
     manager = RobotStateManager()
     interface = RobotInterface(manager)
     interface.run()
+
