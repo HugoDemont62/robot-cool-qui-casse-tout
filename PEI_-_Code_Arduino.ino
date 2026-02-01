@@ -201,7 +201,7 @@ void backwardLeft(int speed) {
 // ===============================
 // FONCTIONS STEPPER DRV8825
 // ===============================
-void moveSteppers(StepperMotor motor, long steps, bool direction) {
+void moveStepper(StepperMotor motor, long steps, bool direction) {
   digitalWrite(motor.dir, direction ? HIGH : LOW);
   for (long i = 0; i < steps; i++) {
     digitalWrite(motor.steps, HIGH);
@@ -381,4 +381,5 @@ void loop() {
       Serial.println("OK");
     }
   }
+
 }
