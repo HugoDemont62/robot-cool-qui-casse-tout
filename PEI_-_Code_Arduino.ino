@@ -11,11 +11,14 @@ Motor frontLeft = {52, 53, 2};
 Motor backRight = {41, 40, 5}; 
 Motor backLeft = {49, 48, 3};
 
-// --- Config moteurs DRV8825 (exemple avec 3 moteurs) ---
-const int dirPins[3]  = {22, 24, 26};  // DIR pour NEMA
-const int stepPins[3] = {23, 25, 27};  // STEP pour NEMA
+// --- Config moteurs DRV8825 ---
+struct StepperMotor { int steps; int dir; };
+StepperMotor StepperHorizontal = {22, 23}; // Moteur horizontal
+StepperMotor StepperClamp = {24, 25}; // Moteur de pince
+StepperMotor StepperHeight = {26, 27}; // Moteur de hauteur
 
 // --- Config moteur 28BYJ-48 via ULN2003 ---
+// Utiliser dans la commande ClampRotate
 const int stepperPins[4] = {30, 31, 32, 33};
 int stepIndex = 0;
 const int stepSequence[8][4] = {
@@ -29,20 +32,39 @@ const int stepSequence[8][4] = {
   {1,0,0,1}
 };
 
+// --- Capteur origine horizontal --- 
+const int clampOriginSensorPin = 34; // À ajuster selon câblage
+
+// --- Config mouvement de base ---
+const int stepsPerHalfRevolution = 1024; // Nombre de pas par demi rotation du 28BYJ-48 (FULL STEP)
+const int stepsPerMilimeterT8 = 512; // Nombre de pas par mm pour les vis T8 (à ajuster selon le mécanisme)
+const int stepsPerMilimeterHorizontal= 512; // Nombre de pas pour avancer de 1 mm (à ajuster selon le mécanisme)
+const int deltaUpDown = 50; // Décalage en mm pour lever/abaisser la caisse
+const int deltaClamp = 5; // Décalage en mm pour ouvrir/fermer la pince
+
+// --- Etats Internes ---
+long clampPosition = 0; // Position actuelle de la pince (en mm)
+long clampHeight = 0; // Position actuelle horizontale (en mm)
+long clampGrip = 0; // Position actuelle de la pince (ouverte/fermée) (en pas)
 
 void setup() {
   Serial.begin(9600);
 
   // Config NEMA
-  for (int i=0; i<3; i++) {
-    pinMode(dirPins[i], OUTPUT);
-    pinMode(stepPins[i], OUTPUT);
-  }
+  pinMode(StepperHorizontal.dir, OUTPUT);
+  pinMode(StepperClamp.dir, OUTPUT);
+  pinMode(StepperHeight.dir, OUTPUT);
+  pinMode(StepperHorizontal.steps, OUTPUT);
+  pinMode(StepperClamp.steps, OUTPUT);
+  pinMode(StepperHeight.steps, OUTPUT);
 
   // Config 28BYJ
   for (int i=0; i<4; i++) {
     pinMode(stepperPins[i], OUTPUT);
   }
+
+  // Capteur origine 
+  pinMode(clampOriginSensorPin, INPUT_PULLUP);
 
   //config moteur
   pinMode(frontRight.pinForward, OUTPUT); 
@@ -62,7 +84,7 @@ void setup() {
 
 
 // ===============================
-// FONCTIONS DE BASE
+// FONCTIONS DE BASE MOTEURS
 // ===============================
 
 // Commande un moteur avec une vitesse (-255 à +255)
@@ -168,10 +190,82 @@ void backwardLeft(int speed) {
   setMotor(backLeft, 0);
 }
 
+// ===============================
+// FONCTIONS STEPPER DRV8825
+// ===============================
+void moveSteppers(StepperMotor motor, long steps, bool direction) {
+  digitalWrite(motor.dir, direction ? HIGH : LOW);
+  for (long i = 0; i < steps; i++) {
+    digitalWrite(motor.steps, HIGH);
+    delayMicroseconds(1000); // Ajuster la vitesse ici
+    digitalWrite(motor.steps, LOW);
+    delayMicroseconds(1000); // Ajuster la vitesse ici
+  }
+}
 
+// ===============================
+// FONCTIONS PREHENSION
+// ===============================
 
+//Rotation de la caisse
+void clampRotate() {
+  for (int i=0; i<abs(stepsPerHalfRevolution); i++) {
+    stepIndex = (stepIndex + (stepsPerHalfRevolution > 0 ? 1 : 7)) % 8; // avance ou recule
+    for (int j=0; j<4; j++) {
+      digitalWrite(stepperPins[j], stepSequence[stepIndex][j]);
+    }
+    delay(1); // ajuste la vitesse
+  }
+}
 
+void ClampOrigin() {
+  clampHeight = 0;
+  clampGrip = 0;
+  clampPosition = 0;
+}
 
+void ClampFindOrigin() {
+  digitalWrite(StepperHorizontal.dir, LOW); // retour arrière
+
+  while (digitalRead(clampOriginSensorPin) == HIGH) {
+    digitalWrite(StepperHorizontal.steps, HIGH);
+    delayMicroseconds(500);
+    digitalWrite(StepperHorizontal.steps, LOW);
+    delayMicroseconds(500);
+  }
+  clampPosition = 0;
+}
+
+void ClampUp(int mm = deltaUpDown) {
+  moveStepper(StepperHeight, mm * stepsPerMilimeterT8, true);
+  clampHeight += mm;
+}
+
+void ClampDown(int mm = deltaUpDown) {
+  moveStepper(StepperHeight, mm * stepsPerMilimeterT8, false);
+  clampHeight -= mm;
+}
+
+void ClampGrab(int mm = deltaClamp) {
+  moveStepper(StepperClamp, mm * stepsPerMilimeterT8, true);
+  clampGrip += mm;
+}
+
+void ClampRelease(int mm = deltaClamp) {
+  moveStepper(StepperClamp, mm * stepsPerMilimeterT8, false);
+  clampGrip -= mm;
+}
+
+void ClampMoveTo(int mm) {
+  long delta = mm - clampPosition;
+  bool direction = delta > 0;
+  moveStepper(StepperHorizontal, abs(delta) * stepsPerMilimeterHorizontal, direction);
+  clampPosition = mm;
+}
+
+// ===============================
+// CODE PRINCIPAL
+// ===============================
 
 void loop() {
   if (Serial.available()) {
@@ -232,34 +326,51 @@ void loop() {
       }
       Serial.println("OK");
     }
-
-
-    // --- NEMA avec DRV8825 ---
-    else if (cmd.startsWith("STEP_NEMA")) {
-      int motor = cmd.substring(10, cmd.indexOf(' ',10)).toInt();
-      int steps = cmd.substring(cmd.indexOf(' ',10)+1).toInt();
-      digitalWrite(dirPins[motor], steps > 0 ? HIGH : LOW);
-      steps = abs(steps);
-      for (int i=0; i<steps; i++) {
-        digitalWrite(stepPins[motor], HIGH);
-        delayMicroseconds(500);
-        digitalWrite(stepPins[motor], LOW);
-        delayMicroseconds(500);
-      }
+    
+    // --- CommandePince ---
+    else if (cmd.startsWith("ClampRotate")) {
+      clampRotate();
       Serial.println("OK");
     }
 
-    // --- 28BYJ-48 ---
-    else if (cmd.startsWith("STEP_28BYJ")) {
-      int steps = cmd.substring(11).toInt();
-      for (int i=0; i<steps; i++) {
-        stepIndex = (stepIndex + 1) % 8; // avance
-        for (int j=0; j<4; j++) {
-          digitalWrite(stepperPins[j], stepSequence[stepIndex][j]);
-        }
-        delay(1); // ajuste la vitesse
-      }
+    else if (cmd.startsWith("ClampOrigin")) {
+      ClampOrigin();
+      Serial.println("OK");
+    }
+
+    else if (cmd.startsWith("ClampFindOrigin")) {
+      ClampFindOrigin();
+      Serial.println("OK");
+    }
+
+    else if (cmd.startsWith("ClampUp")) {
+      int mm = cmd.length() > 8 ? cmd.substring(8).toInt() : deltaUpDown;
+      ClampUp(mm);
+      Serial.println("OK");
+    }
+
+    else if (cmd.startsWith("ClampDown")) {
+      int mm = cmd.length() > 10 ? cmd.substring(10).toInt() : deltaUpDown;
+      ClampDown(mm);
+      Serial.println("OK");
+    }
+
+    else if (cmd.startsWith("ClampGrab")) {
+      int mm = cmd.length() > 10 ? cmd.substring(10).toInt() : deltaClamp;
+      ClampGrab(mm);
+      Serial.println("OK");
+    }
+
+    else if (cmd.startsWith("ClampRelease")) {
+      int mm = cmd.length() > 13 ? cmd.substring(13).toInt() : deltaClamp;
+      ClampRelease(mm);
+      Serial.println("OK");
+    }
+
+    else if (cmd.startsWith("ClampMoveTo")) {
+      int mm = cmd.substring(12).toInt();
+      ClampMoveTo(mm);
       Serial.println("OK");
     }
   }
-} 
+}

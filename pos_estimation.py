@@ -1,131 +1,284 @@
-"""
-File: `pos_estimation.py`
-Author: Hugo Demont
-Version: 1.0.1
-"""
-from __future__ import print_function
 import argparse
+import logging
+from typing import Optional, Tuple, Dict, Any
+
 import cv2
 import numpy as np
-from scipy.spatial.transform import Rotation as R
-import math
 
-# mapping existant
-ARUCO_DICT = {
-    "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
-    "DICT_4X4_100": cv2.aruco.DICT_4X4_100,
-    "DICT_4X4_250": cv2.aruco.DICT_4X4_250,
-    "DICT_4X4_1000": cv2.aruco.DICT_4X4_1000,
-    "DICT_5X5_50": cv2.aruco.DICT_5X5_50,
-    "DICT_5X5_100": cv2.aruco.DICT_5X5_100,
-    "DICT_5X5_250": cv2.aruco.DICT_5X5_250,
-    "DICT_5X5_1000": cv2.aruco.DICT_5X5_1000,
-    "DICT_6X6_50": cv2.aruco.DICT_6X6_50,
-    "DICT_6X6_100": cv2.aruco.DICT_6X6_100,
-    "DICT_6X6_250": cv2.aruco.DICT_6X6_250,
-    "DICT_6X6_1000": cv2.aruco.DICT_6X6_1000,
-    "DICT_7X7_50": cv2.aruco.DICT_7X7_50,
-    "DICT_7X7_100": cv2.aruco.DICT_7X7_100,
-    "DICT_7X7_250": cv2.aruco.DICT_7X7_250,
-    "DICT_7X7_1000": cv2.aruco.DICT_7X7_1000,
-    "DICT_ARUCO_ORIGINAL": cv2.aruco.DICT_ARUCO_ORIGINAL
+# ------------------------------
+# PARAMÈTRES GLOBAUX
+# ------------------------------
+
+# Type de dictionnaire ArUco utilisé (4x4, 50 tags possibles)
+ARUCO_DICT = cv2.aruco.DICT_4X4_50
+
+# Tailles des différents types de tags (en millimètres)
+TAG_SIZES_MM = {
+    "ref": 100,     # Tags de référence (grands)
+    "small": 40,    # Petits tags
+    "default": 70   # Taille standard
 }
 
-def euler_from_quaternion(x, y, z, w):
-    t0 = +2.0 * (w * x + y * z)
-    t1 = +1.0 - 2.0 * (x * x + y * y)
-    roll_x = math.atan2(t0, t1)
-    t2 = +2.0 * (w * y - z * x)
-    t2 = +1.0 if t2 > +1.0 else t2
-    t2 = -1.0 if t2 < -1.0 else t2
-    pitch_y = math.asin(t2)
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    yaw_z = math.atan2(t3, t4)
-    return roll_x, pitch_y, yaw_z
+# Conversion des tailles en mètres (utilisé par OpenCV)
+TAG_SIZES_M = {k: v / 1000.0 for k, v in TAG_SIZES_MM.items()}
 
-def main():
-    parser = argparse.ArgumentParser(description="ArUco pose estimation")
-    parser.add_argument("--dict", default="DICT_4X4_50", help="ArUco dictionary name (see ARUCO_DICT keys)")
-    parser.add_argument("--id", type=int, default=-1, help="Marker ID to follow (-1 = all)")
-    parser.add_argument("--size", type=float, default=0.066, help="Marker side length in meters")
-    parser.add_argument("--calib", default="calibration_chessboard.yaml", help="Calibration file")
+# Liste des tags servant à définir le repère global
+REFERENCE_TAGS = {20, 21, 22, 23}
+
+# Liste des petits tags
+SMALL_TAGS = {36, 41, 47}
+
+# Position des tags de référence dans le repère Eurobot (en mètres)
+REFERENCE_GLOBAL_POS = {
+    20: np.array([600.0, 1400.0, 0.0]) / 1000.0,
+    21: np.array([2400.0, 1400.0, 0.0]) / 1000.0,
+    22: np.array([600.0, 600.0, 0.0]) / 1000.0,
+    23: np.array([2400.0, 600.0, 0.0]) / 1000.0
+}
+
+# ------------------------------
+# TRANSFORMATIONS
+# ------------------------------
+
+def invert_transform(rvec, tvec):
+    """
+    Inverse une transformation (rotation + translation).
+    Permet de passer de "caméra → tag" à "tag → caméra".
+    """
+    R, _ = cv2.Rodrigues(rvec)
+    R_inv = R.T               # Inversion d'une rotation = transposée
+    t_inv = -R_inv @ tvec     # Inversion de la translation
+    rvec_inv, _ = cv2.Rodrigues(R_inv)
+    return rvec_inv, t_inv
+
+
+def compose_transform(rvec1, tvec1, rvec2, tvec2):
+    """
+    Compose deux transformations successives :
+    (R1, t1) suivie de (R2, t2).
+    Permet de chaîner les repères.
+    """
+    R1, _ = cv2.Rodrigues(rvec1)
+    R2, _ = cv2.Rodrigues(rvec2)
+    R = R1 @ R2               # Composition des rotations
+    t = R1 @ tvec2 + tvec1    # Composition des translations
+    rvec, _ = cv2.Rodrigues(R)
+    return rvec, t
+
+
+def compute_detection_weight(corners):
+    """
+    Calcule un poids basé sur la qualité de détection du tag.
+    Plus les coins sont réguliers, plus le poids est élevé.
+    Sert à fusionner plusieurs mesures.
+    """
+    pts = np.asarray(corners).reshape(-1, 2)
+    center = pts.mean(axis=0)
+    error = np.mean(np.linalg.norm(pts - center, axis=1))
+    return 1.0 / (error + 1e-6)
+
+
+def orthonormalize_rotation(R: np.ndarray) -> np.ndarray:
+    """
+    Corrige une matrice de rotation approchée pour la rendre orthogonale.
+    Utilise une SVD pour obtenir la rotation la plus proche.
+    """
+    U, S, Vt = np.linalg.svd(R)
+    R_proj = U @ Vt
+    if np.linalg.det(R_proj) < 0:
+        U[:, -1] *= -1
+        R_proj = U @ Vt
+    return R_proj
+
+
+# ------------------------------
+# PROGRAMME PRINCIPAL
+# ------------------------------
+
+def main() -> None:
+    """
+    Boucle principale :
+    - détecte les tags ArUco
+    - calcule la pose de la caméra dans le repère Eurobot
+    - affiche la position globale des autres tags
+    """
+
+    # Lecture des arguments (calibration, caméra, mode verbose)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--calib', default='calibration_chessboard.yaml', help='Fichier de calibration')
+    parser.add_argument('--cam', type=int, default=0, help='Index de la caméra')
+    parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
 
-    if args.dict not in ARUCO_DICT:
-        print("[INFO] Dictionnaire '{}' non trouvé. Clés disponibles:".format(args.dict))
-        for k in ARUCO_DICT.keys():
-            print("  -", k)
-        return
+    # Configuration du logger
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format='[%(levelname)s] %(message)s')
+    log = logging.getLogger('pos_estimation')
 
-    # lecture calibration
+    # Chargement des paramètres de calibration caméra
     cv_file = cv2.FileStorage(args.calib, cv2.FILE_STORAGE_READ)
     if not cv_file.isOpened():
-        print("[ERROR] Impossible d'ouvrir", args.calib)
+        log.error('Impossible d ouvrir %s', args.calib)
         return
-    mtx = cv_file.getNode('K').mat()
-    dst = cv_file.getNode('D').mat()
+
+    mtx = cv_file.getNode('K').mat()   # Matrice intrinsèque
+    dst = cv_file.getNode('D').mat()   # Coefficients de distorsion
     cv_file.release()
 
-    this_aruco_dictionary = cv2.aruco.getPredefinedDictionary(ARUCO_DICT[args.dict])
-    this_aruco_parameters = cv2.aruco.DetectorParameters_create()
+    # Initialisation du détecteur ArUco
+    dictionary = cv2.aruco.getPredefinedDictionary(ARUCO_DICT)
+    parameters = cv2.aruco.DetectorParameters()
+    detector = cv2.aruco.ArucoDetector(dictionary, parameters)
 
-    cap = cv2.VideoCapture(0)
+    # Ouverture de la caméra
+    cap = cv2.VideoCapture(args.cam)
     if not cap.isOpened():
-        print("[ERROR] Impossible d'ouvrir la caméra")
+        log.error('Impossible d ouvrir la caméra %d', args.cam)
         return
 
-    target_id = args.id
+    log.info("Système prêt. Appuyez sur 'q' pour quitter.")
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    # Variables pour stocker la pose globale de la caméra
+    global_cam_rvec = None
+    global_cam_tvec = None
+    global_fixed = False
 
-        corners, marker_ids, _ = cv2.aruco.detectMarkers(frame, this_aruco_dictionary,
-                                                         parameters=this_aruco_parameters)
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if marker_ids is not None:
-            cv2.aruco.drawDetectedMarkers(frame, corners, marker_ids)
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, args.size, mtx, dst)
+            # Détection des tags dans l'image
+            corners, ids, rejected = detector.detectMarkers(frame)
 
-            ids_flat = marker_ids.flatten()
-            for idx, mid in enumerate(ids_flat):
-                mid = int(mid)
-                # si on suit un id précis, ignorer les autres
-                if target_id != -1 and mid != target_id:
-                    continue
+            ref_poses = []   # Poses des tags de référence
+            other_tags = {}  # Poses des autres tags
 
-                # récupération translation
-                tx, ty, tz = map(float, tvecs[idx][0])
+            if ids is not None:
+                ids = ids.flatten()
 
-                # rotation matrix -> quaternion
-                rot_mat = cv2.Rodrigues(rvecs[idx][0])[0]
-                r = R.from_matrix(rot_mat)
-                quat = r.as_quat()  # x, y, z, w
+                for i, tag_id in enumerate(ids):
 
-                rx, ry, rz, rw = quat
-                roll_x, pitch_y, yaw_z = euler_from_quaternion(rx, ry, rz, rw)
-                roll_x = math.degrees(roll_x)
-                pitch_y = math.degrees(pitch_y)
-                yaw_z = math.degrees(yaw_z)
+                    # Sélection de la taille du tag selon son type
+                    if tag_id in REFERENCE_TAGS:
+                        marker_length = TAG_SIZES_M["ref"]
+                    elif tag_id in SMALL_TAGS:
+                        marker_length = TAG_SIZES_M["small"]
+                    else:
+                        marker_length = TAG_SIZES_M["default"]
 
-                # affichage console (court)
-                print(f"ID {mid} -> tx:{tx:.3f} ty:{ty:.3f} tz:{tz:.3f} roll:{roll_x:.1f} pitch:{pitch_y:.1f} yaw:{yaw_z:.1f}")
+                    # Estimation de la pose du tag détecté
+                    rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                        corners[i], marker_length, mtx, dst
+                    )
+                    rvec = rvecs[0, 0]
+                    tvec = tvecs[0, 0]
 
-                # dessiner axes et label cible
-                cv2.drawFrameAxes(frame, mtx, dst, rvecs[idx], tvecs[idx], args.size * 0.75)
-                # mettre en évidence le marqueur suivi
-                corner_pts = corners[idx].reshape((4, 2)).astype(int)
-                cv2.polylines(frame, [corner_pts], True, (0, 255, 0), 3)
-                cv2.putText(frame, f"ID:{mid}", tuple(corner_pts[0]), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+                    # Affichage des axes du tag
+                    cv2.drawFrameAxes(frame, mtx, dst, rvec, tvec, marker_length * 0.75)
 
-        cv2.imshow('frame', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+                    # Si c'est un tag de référence → utilisé pour fixer le repère global
+                    if tag_id in REFERENCE_TAGS:
+                        weight = compute_detection_weight(corners[i])
+                        ref_poses.append((tag_id, rvec, tvec, weight))
 
-    cap.release()
-    cv2.destroyAllWindows()
+                        cv2.polylines(frame, [corners[i].astype(int)], True, (0, 255, 0), 3)
+                        cv2.putText(frame, f"REF {tag_id}",
+                                    tuple(corners[i][0][0].astype(int)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                    # Sinon → tag normal
+                    else:
+                        other_tags[tag_id] = (rvec, tvec, corners[i])
+
+                        cv2.polylines(frame, [corners[i].astype(int)], True, (255, 0, 0), 2)
+                        cv2.putText(frame, f"ID {tag_id}",
+                                    tuple(corners[i][0][0].astype(int)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+            # ------------------------------
+            # CALCUL DE LA POSE GLOBALE DE LA CAMÉRA
+            # ------------------------------
+
+            if not global_fixed and len(ref_poses) >= 1:
+
+                # Fusion pondérée des poses caméra→tag
+                R_sum = np.zeros((3, 3))
+                t_sum = np.zeros(3)
+                w_sum = 0.0
+
+                for tag_id, rvec, tvec, w in ref_poses:
+                    R, _ = cv2.Rodrigues(rvec)
+                    R_sum += w * R
+                    t_sum += w * tvec
+                    w_sum += w
+
+                if w_sum > 1e-8:
+                    R_avg = R_sum / w_sum
+                    t_avg = t_sum / w_sum
+
+                    # Correction de la rotation
+                    R_proj = orthonormalize_rotation(R_avg)
+                    rvec_fused, _ = cv2.Rodrigues(R_proj)
+                    tvec_fused = t_avg
+
+                    # Inversion pour obtenir caméra → tag20
+                    rvec_cam_to_tag20, tvec_cam_to_tag20 = invert_transform(rvec_fused, tvec_fused)
+
+                    # Position connue du tag 20 dans le repère Eurobot
+                    tag20_global = REFERENCE_GLOBAL_POS[20]
+                    rvec_tag20_global = np.array([0.0, 0.0, 0.0])  # Hypothèse : axes alignés
+                    tvec_tag20_global = tag20_global
+
+                    # Composition pour obtenir caméra → repère global
+                    global_cam_rvec, global_cam_tvec = compose_transform(
+                        rvec_tag20_global, tvec_tag20_global,
+                        rvec_cam_to_tag20, tvec_cam_to_tag20
+                    )
+
+                    global_fixed = True
+                    log.info('Repère global Eurobot fixé.')
+
+            # ------------------------------
+            # CALCUL DES POSITIONS GLOBALES DES AUTRES TAGS
+            # ------------------------------
+
+            if global_fixed:
+
+                for tag_id, (rvec_tag, tvec_tag, c) in other_tags.items():
+
+                    # Transformation repère global → tag
+                    rvec_rel, tvec_rel = compose_transform(
+                        global_cam_rvec, global_cam_tvec,
+                        rvec_tag, tvec_tag
+                    )
+
+                    # Conversion en millimètres pour affichage
+                    x, y, z = tvec_rel * 1000.0
+
+                    log.info('[TAG %d] Position globale Eurobot : X=%.1f mm Y=%.1f mm Z=%.1f mm',
+                             tag_id, x, y, z)
+
+                    # Affichage de la position sur l'image
+                    corner0 = np.asarray(c[0][0]).astype(int)
+                    cv2.putText(frame, f"({x:.0f},{y:.0f},{z:.0f})",
+                                (corner0[0], corner0[1] + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+            # ------------------------------
+            # AFFICHAGE
+            # ------------------------------
+
+            cv2.imshow("Aruco Global Pose (Eurobot)", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     main()
