@@ -12,10 +12,10 @@ Motor backRight = {41, 40, 5};
 Motor backLeft = {49, 48, 3};
 
 // --- Config moteurs DRV8825 ---
-struct StepperMotor { int steps; int dir; };
-StepperMotor StepperHorizontal = {22, 23}; // Moteur horizontal
-StepperMotor StepperClamp = {24, 25}; // Moteur de pince
-StepperMotor StepperHeight = {26, 27}; // Moteur de hauteur
+struct StepperMotor { int steps; int dir; int enable };
+StepperMotor StepperHorizontal = {22, 23, 6}; // Moteur horizontal
+StepperMotor StepperClamp = {24, 25, 7}; // Moteur de pince
+StepperMotor StepperHeight = {26, 27, 8}; // Moteur de hauteur
 
 // --- Config moteur 28BYJ-48 via ULN2003 ---
 // Utiliser dans la commande ClampRotate
@@ -57,6 +57,14 @@ void setup() {
   pinMode(StepperHorizontal.steps, OUTPUT);
   pinMode(StepperClamp.steps, OUTPUT);
   pinMode(StepperHeight.steps, OUTPUT);
+
+  pinMode(StepperHorizontal.enable, OUTPUT);
+  pinMode(StepperClamp.enable, OUTPUT);
+  pinMode(StepperHeight.enable, OUTPUT);
+
+  digitalWrite(StepperHorizontal.enable, HIGH);
+  digitalWrite(StepperClamp.enable, HIGH);
+  digitalWrite(StepperHeight.enable, HIGH);
 
   // Config 28BYJ
   for (int i=0; i<4; i++) {
