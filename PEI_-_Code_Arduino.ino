@@ -1,18 +1,18 @@
 #include <Arduino.h>
 
+// --- Config moteurs ---
 struct Motor { int pinForward; int pinBackward; int pinPWM; };
 
-// Définition des moteurs 
 Motor frontRight = {52, 48, 50}; 
 Motor frontLeft = {49, 53, 51}; 
 Motor backRight = {46, 42, 44}; 
 Motor backLeft = {43, 47, 45};
 
 // --- Config moteurs DRV8825 ---
-struct StepperMotor { int steps; int dir; int enable };
-StepperMotor StepperHorizontal = {33, 35, 31}; // Moteur horizontal
+struct StepperMotor { int steps; int dir; int enable};
+StepperMotor StepperHorizontal = {39, 41, 37}; // Moteur horizontal
 StepperMotor StepperClamp = {24, 22, 26}; // Moteur de pince
-StepperMotor StepperHeight = {39, 41, 37}; // Moteur de hauteur
+StepperMotor StepperHeight = {33, 35, 31}; // Moteur de hauteur
 
 // --- Config moteur 28BYJ-48 via ULN2003 ---
 // Utiliser dans la commande ClampRotate
