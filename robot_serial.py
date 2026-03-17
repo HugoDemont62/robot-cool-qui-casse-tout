@@ -130,7 +130,7 @@ class RobotSerial:
         Args:
             command: La commande à envoyer (ex: "MOVE forward 200")
             wait_response: Si True, attend la réponse de l'Arduino
-            
+
         Returns:
             La réponse de l'Arduino si wait_response=True, None sinon
         """
@@ -145,7 +145,7 @@ class RobotSerial:
             
             # Envoyer la commande
             self._serial.write(command.encode())
-            
+
             if wait_response:
                 # Attendre la réponse
                 response = self._serial.readline().decode().strip()
@@ -154,9 +154,9 @@ class RobotSerial:
                     self._response_callback(f"> {command.strip()} → {response}")
                 
                 return response
-            
+
             return None
-            
+
         except Exception as e:
             print(f"❌ Erreur lors de l'envoi de la commande: {e}")
             return None
@@ -193,31 +193,31 @@ class RobotSerial:
     def move_forward(self, speed: int = 200):
         """Avancer."""
         return self.send_command(f"MOVE forward {speed}")
-    
+
     def move_backward(self, speed: int = 200):
         """Reculer."""
         return self.send_command(f"MOVE backward {speed}")
-    
+
     def move_left(self, speed: int = 200):
         """Translation vers la gauche."""
         return self.send_command(f"MOVE left {speed}")
-    
+
     def move_right(self, speed: int = 200):
         """Translation vers la droite."""
         return self.send_command(f"MOVE right {speed}")
-    
+
     def rotate_cw(self, speed: int = 200):
         """Rotation horaire."""
         return self.send_command(f"MOVE rotateCW {speed}")
-    
+
     def rotate_ccw(self, speed: int = 200):
         """Rotation anti-horaire."""
         return self.send_command(f"MOVE rotateCCW {speed}")
-    
+
     def stop_all(self):
         """Arrêter tous les moteurs."""
         return self.send_command("MOVE stop 0")
-    
+
     def clamp_rotate(self):
         """Rotation de la pince."""
         return self.send_command("ClampRotate")

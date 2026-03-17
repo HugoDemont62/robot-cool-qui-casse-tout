@@ -38,7 +38,7 @@ class SSHRunner:
 
     def connect(self) -> None:
         if not PARAMIKO_AVAILABLE:
-            raise RuntimeError("paramiko n'est pas installé; ajoutez-le à requirements.txt")
+            raise RuntimeError("paramiko n'est pas installé. Installez-le avec :\n    python -m pip install paramiko\nou\n    python -m pip install -r requirements.txt\nPuis relancez l'application.")
         if self._client is not None:
             return
         client = paramiko.SSHClient()
@@ -112,7 +112,7 @@ class SSHInteractive:
 
     def connect(self) -> None:
         if not PARAMIKO_AVAILABLE:
-            raise RuntimeError("paramiko n'est pas installé; ajoutez-le à requirements.txt")
+            raise RuntimeError("paramiko n'est pas installé. Installez-le avec :\n    python -m pip install paramiko\nou\n    python -m pip install -r requirements.txt\nPuis relancez l'application.")
         if self._client is not None:
             return
         client = paramiko.SSHClient()
