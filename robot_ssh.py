@@ -7,7 +7,7 @@ utilisée par `main.py`.
 
 Remarques:
 - Par défaut: hostname=PEI.local, username=admin, password=admin
-- Lance `python3 <remote_path>` en arrière-plan via nohup et enregistre
+- Lance `python <remote_path>` en arrière-plan via nohup et enregistre
   la sortie dans ~/test_remote_<timestamp>.log
 - Lève des exceptions si la connexion ou l'exécution échoue.
 """
@@ -55,9 +55,9 @@ class SSHRunner:
         logfile = f"~/{logfile_prefix}_{timestamp}.log"
         # Si remote_path est absolu, n'effectue pas cd ~
         if os.path.isabs(remote_path):
-            cmd = f"nohup python3 {remote_path} > {logfile} 2>&1 &"
+            cmd = f"nohup python {remote_path} > {logfile} 2>&1 &"
         else:
-            cmd = f"cd ~ && nohup python3 {remote_path} > {logfile} 2>&1 &"
+            cmd = f"cd ~ && nohup python {remote_path} > {logfile} 2>&1 &"
         stdin, stdout, stderr = self._client.exec_command(cmd)
         # On retourne le chemin du logfile pour information.
         return logfile

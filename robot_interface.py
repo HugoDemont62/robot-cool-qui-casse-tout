@@ -89,6 +89,7 @@ class RobotInterface:
         # Instance SSH
         self.ssh_runner: Optional[Any] = None
         self._ssh_connected = False
+        self._ssh_process_stdin = None  # stdin du control_robot.py lancé sur le Pi
 
         self.root = tk.Tk()
         if TB_AVAILABLE:
@@ -391,7 +392,7 @@ class RobotInterface:
         ttk.Label(port_row, text="Port:", style="Small.TLabel").pack(side=SIDE_LEFT)
 
         self.port_var = tk.StringVar()
-        self.port_combo = ttk.Combobox(port_row, textvariable=self.port_var, width=20, state='readonly')
+        self.port_combo = ttk.Combobox(port_row, textvariable=self.port_var, width=20)
         self.port_combo.pack(side=SIDE_LEFT, padx=(5, 10))
 
         refresh_btn = ttk.Button(port_row, text="🔄", width=3, command=self._refresh_ports)
@@ -546,10 +547,26 @@ class RobotInterface:
         except:
             pass
 
+    def _send_via_ssh_stdin(self, key: str) -> bool:
+        """Envoie une touche de commande au control_robot.py via SSH stdin. Retourne True si envoyé."""
+        if self._ssh_process_stdin is None:
+            return False
+        try:
+            self._ssh_process_stdin.write(f"{key}\n")
+            self._ssh_process_stdin.flush()
+            return True
+        except Exception:
+            self._ssh_process_stdin = None
+            self.root.after(0, self._on_control_robot_stopped)
+            return False
+
     def _send_move(self, direction: str):
-        """Envoie une commande de mouvement"""
+        """Envoie une commande de mouvement (SSH stdin si actif, sinon série)"""
+        if self._send_via_ssh_stdin(direction):
+            self._log_command(f"→ SSH: MOVE {direction}")
+            return
         if not SERIAL_AVAILABLE or not self.robot_serial or not self.robot_serial.is_connected():
-            messagebox.showwarning("Non connecté", "Connectez-vous d'abord au robot")
+            messagebox.showwarning("Non connecté", "Connectez-vous au robot (série) ou lancez control_robot.py via SSH")
             return
 
         speed = self.speed_var.get()
@@ -559,6 +576,9 @@ class RobotInterface:
 
     def _stop_robot(self):
         """Arrête tous les moteurs"""
+        if self._send_via_ssh_stdin("stop"):
+            self._log_command("→ SSH: stop")
+            return
         if not SERIAL_AVAILABLE or not self.robot_serial or not self.robot_serial.is_connected():
             return
 
@@ -681,10 +701,22 @@ class RobotInterface:
         cmd_frame = ttk.LabelFrame(frame, text="⚡ Commandes Rapides", padding=10)
         cmd_frame.pack(fill=FILL_X, pady=(0, 10))
 
+        # Bouton principal de lancement du script de contrôle
+        launch_row = ttk.Frame(cmd_frame)
+        launch_row.pack(fill=FILL_X, pady=(0, 8))
+        self.ssh_launch_btn = ttk.Button(launch_row, text="🤖 Lancer control_robot.py",
+                                         command=self._launch_control_robot)
+        self.ssh_launch_btn.pack(side=SIDE_LEFT, padx=5)
+        self.ssh_stop_script_btn = ttk.Button(launch_row, text="⏹ Arrêter script",
+                                              command=self._stop_control_robot)
+        self.ssh_stop_script_btn.pack(side=SIDE_LEFT, padx=5)
+        self.ssh_script_status = ttk.Label(launch_row, text="Script: ⬜ Arrêté",
+                                           style="Small.TLabel")
+        self.ssh_script_status.pack(side=SIDE_LEFT, padx=10)
+
         quick_cmds = [
             ("📋 Lister fichiers (ls)", "ls -la"),
             ("📂 Aller dans home", "cd ~"),
-            ("🐍 Lancer test.py", "python3 test.py"),
             ("🛑 Arrêter processus Python", "pkill -f python"),
             ("📊 Voir processus", "ps aux | grep python"),
             ("💾 Espace disque", "df -h"),
@@ -822,6 +854,66 @@ class RobotInterface:
                 self._log_ssh(f"❌ Erreur: {e}\n")
                 self.ssh_runner = None
                 self._ssh_connected = False
+
+    def _launch_control_robot(self):
+        """Lance control_robot.py sur le Pi avec stdin ouvert pour le contrôle."""
+        if not self._ssh_connected or not self.ssh_runner:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord via SSH")
+            return
+        if self._ssh_process_stdin is not None:
+            messagebox.showinfo("Déjà lancé", "Le script est déjà en cours d'exécution.\nArrêtez-le d'abord.")
+            return
+
+        self._log_ssh("\n🤖 Lancement de control_robot.py sur le Pi...\n")
+        try:
+            stdin, stdout, stderr = self.ssh_runner._client.exec_command(
+                "cd ~ && python control_robot.py", timeout=None
+            )
+            self._ssh_process_stdin = stdin
+
+            # Lecture de stdout en arrière-plan
+            import threading
+            def read_output():
+                try:
+                    for line in iter(stdout.readline, ""):
+                        if not line:
+                            break
+                        self.root.after(0, lambda l=line: self._log_ssh(l))
+                except Exception:
+                    pass
+                self.root.after(0, self._on_control_robot_stopped)
+
+            threading.Thread(target=read_output, daemon=True).start()
+
+            self.ssh_script_status.config(text="Script: 🟢 En cours")
+            self._log_ssh("✅ Script lancé ! Les boutons de contrôle envoient maintenant via SSH.\n\n")
+
+        except Exception as e:
+            self._log_ssh(f"❌ Erreur de lancement: {e}\n")
+            self._ssh_process_stdin = None
+
+    def _stop_control_robot(self):
+        """Arrête control_robot.py en fermant stdin (envoie 'quit')."""
+        if self._ssh_process_stdin is None:
+            return
+        try:
+            self._ssh_process_stdin.write("quit\n")
+            self._ssh_process_stdin.flush()
+            self._ssh_process_stdin.channel.shutdown_write()
+        except Exception:
+            pass
+        self._ssh_process_stdin = None
+        self.ssh_script_status.config(text="Script: ⬜ Arrêté")
+        self._log_ssh("\n⏹ Script arrêté.\n")
+
+    def _on_control_robot_stopped(self):
+        """Appelé quand le script distant se termine."""
+        self._ssh_process_stdin = None
+        try:
+            self.ssh_script_status.config(text="Script: ⬜ Arrêté")
+            self._log_ssh("\n⚠️ Le script control_robot.py s'est terminé.\n")
+        except Exception:
+            pass
 
     def _test_ssh_connection(self):
         """Test la connexion SSH avec une commande simple"""

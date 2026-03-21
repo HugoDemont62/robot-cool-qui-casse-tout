@@ -94,5 +94,46 @@ def keyboard_control_interactive():
         curses.endwin()
 
 
+def stdin_control():
+    """Mode sans TTY : lit les commandes depuis stdin (une par ligne).
+    Utilisé quand lancé via SSH sans terminal (interface graphique)."""
+    import sys
+
+    SPEED = 200
+    cmd_map = {
+        'z': f'MOVE forward {SPEED}',
+        's': f'MOVE backward {SPEED}',
+        'q': f'MOVE left {SPEED}',
+        'd': f'MOVE right {SPEED}',
+        'a': f'MOVE rotateCCW {SPEED}',
+        'e': f'MOVE rotateCW {SPEED}',
+        'y': f'MOVE forwardLeft {SPEED}',
+        'u': f'MOVE forwardRight {SPEED}',
+        'i': f'MOVE backwardLeft {SPEED}',
+        'o': f'MOVE backwardRight {SPEED}',
+        'stop': 'MOVE stop 0',
+    }
+
+    print("stdin_control ready", flush=True)
+    try:
+        for line in sys.stdin:
+            key = line.strip().lower()
+            if not key:
+                continue
+            if key == 'quit':
+                send_command("MOVE stop 0")
+                break
+            if key in cmd_map:
+                send_command(cmd_map[key])
+            else:
+                print(f"Commande inconnue: {key}", flush=True)
+    except (KeyboardInterrupt, EOFError):
+        send_command("MOVE stop 0")
+
+
 if __name__ == "__main__":
-    keyboard_control_interactive()
+    import sys
+    if sys.stdin.isatty():
+        keyboard_control_interactive()
+    else:
+        stdin_control()
