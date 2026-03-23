@@ -27,6 +27,16 @@ except Exception:
     RobotSerial = None
     SERIAL_AVAILABLE = False
 
+# Import du module SSH
+_robot_ssh_module = None
+try:
+    _robot_ssh_module = importlib.import_module('robot_ssh')
+    SSHRunner = getattr(_robot_ssh_module, 'SSHRunner')
+    SSH_AVAILABLE = True
+except Exception:
+    SSHRunner = None
+    SSH_AVAILABLE = False
+
 # Constantes
 TERRAIN_REAL_WIDTH = 3000
 TERRAIN_REAL_HEIGHT = 2000
@@ -67,8 +77,19 @@ class RobotInterface:
         self.state_manager = state_manager
         self._last_state: Optional[RobotState] = None
 
-        # Instance de communication série
-        self.robot_serial: Optional[Any] = None if not SERIAL_AVAILABLE else RobotSerial()
+        # Instance de communication série (initialisée en toute sécurité)
+        self.robot_serial: Optional[Any] = None
+        if SERIAL_AVAILABLE:
+            try:
+                # L'API RobotSerial peut être importée ou non; instanciation protégée
+                self.robot_serial = RobotSerial()
+            except Exception:
+                self.robot_serial = None
+
+        # Instance SSH
+        self.ssh_runner: Optional[Any] = None
+        self._ssh_connected = False
+        self._ssh_process_stdin = None  # stdin du control_robot.py lancé sur le Pi
 
         self.root = tk.Tk()
         if TB_AVAILABLE:
@@ -125,6 +146,14 @@ class RobotInterface:
         right_info = ttk.Frame(header, style="Header.TFrame")
         right_info.pack(side=SIDE_RIGHT)
 
+        # Indicateur SSH
+        self.ssh_status_label = ttk.Label(right_info, text="SSH: ❌", style="Header.TLabel", foreground=COLORS['danger'])
+        self.ssh_status_label.pack(side=SIDE_LEFT, padx=8)
+
+        # Indicateur Série
+        self.serial_status_header = ttk.Label(right_info, text="Série: ❌", style="Header.TLabel", foreground=COLORS['danger'])
+        self.serial_status_header.pack(side=SIDE_LEFT, padx=8)
+
         self.connection_label = ttk.Label(right_info, text="● DÉCONNECTÉ", style="Header.TLabel")
         self.connection_label.pack(side=SIDE_LEFT, padx=8)
 
@@ -167,21 +196,24 @@ class RobotInterface:
         sensors_tab = ttk.Frame(tabs, style='TFrame')
         actuators_tab = ttk.Frame(tabs, style='TFrame')
         detection_tab = ttk.Frame(tabs, style='TFrame')
-        control_tab = ttk.Frame(tabs, style='TFrame')  # NOUVEAU
+        control_tab = ttk.Frame(tabs, style='TFrame')
+        ssh_tab = ttk.Frame(tabs, style='TFrame')  # Nouvel onglet SSH
 
         tabs.add(pos_tab, text="Position")
         tabs.add(wheels_tab, text="Roues")
         tabs.add(sensors_tab, text="Capteurs")
         tabs.add(actuators_tab, text="Actionneurs")
         tabs.add(detection_tab, text="ArUco")
-        tabs.add(control_tab, text="🎮 Contrôle Direct")  # NOUVEAU
+        tabs.add(control_tab, text="🎮 Contrôle Direct")
+        tabs.add(ssh_tab, text="🔐 SSH Raspberry")  # Nouvel onglet SSH
 
         self._create_position_panel(pos_tab)
         self._create_wheels_panel(wheels_tab)
         self._create_sensors_panel(sensors_tab)
         self._create_actuators_panel(actuators_tab)
         self._create_detection_panel(detection_tab)
-        self._create_control_panel(control_tab)  # NOUVEAU
+        self._create_control_panel(control_tab)
+        self._create_ssh_panel(ssh_tab)  # Nouveau panneau SSH
 
         # Controls footer
         controls = ttk.Frame(self.root)
@@ -360,7 +392,7 @@ class RobotInterface:
         ttk.Label(port_row, text="Port:", style="Small.TLabel").pack(side=SIDE_LEFT)
 
         self.port_var = tk.StringVar()
-        self.port_combo = ttk.Combobox(port_row, textvariable=self.port_var, width=20, state='readonly')
+        self.port_combo = ttk.Combobox(port_row, textvariable=self.port_var, width=20)
         self.port_combo.pack(side=SIDE_LEFT, padx=(5, 10))
 
         refresh_btn = ttk.Button(port_row, text="🔄", width=3, command=self._refresh_ports)
@@ -515,10 +547,26 @@ class RobotInterface:
         except:
             pass
 
+    def _send_via_ssh_stdin(self, key: str) -> bool:
+        """Envoie une touche de commande au control_robot.py via SSH stdin. Retourne True si envoyé."""
+        if self._ssh_process_stdin is None:
+            return False
+        try:
+            self._ssh_process_stdin.write(f"{key}\n")
+            self._ssh_process_stdin.flush()
+            return True
+        except Exception:
+            self._ssh_process_stdin = None
+            self.root.after(0, self._on_control_robot_stopped)
+            return False
+
     def _send_move(self, direction: str):
-        """Envoie une commande de mouvement"""
+        """Envoie une commande de mouvement (SSH stdin si actif, sinon série)"""
+        if self._send_via_ssh_stdin(direction):
+            self._log_command(f"→ SSH: MOVE {direction}")
+            return
         if not SERIAL_AVAILABLE or not self.robot_serial or not self.robot_serial.is_connected():
-            messagebox.showwarning("Non connecté", "Connectez-vous d'abord au robot")
+            messagebox.showwarning("Non connecté", "Connectez-vous au robot (série) ou lancez control_robot.py via SSH")
             return
 
         speed = self.speed_var.get()
@@ -528,6 +576,9 @@ class RobotInterface:
 
     def _stop_robot(self):
         """Arrête tous les moteurs"""
+        if self._send_via_ssh_stdin("stop"):
+            self._log_command("→ SSH: stop")
+            return
         if not SERIAL_AVAILABLE or not self.robot_serial or not self.robot_serial.is_connected():
             return
 
@@ -588,6 +639,334 @@ class RobotInterface:
         self._log_command("→ ClampFindOrigin")
         self.robot_serial.send_command("ClampFindOrigin")
 
+    def _create_ssh_panel(self, parent):
+        """NOUVEAU PANNEAU - Gestion de la connexion SSH au Raspberry Pi"""
+        frame = ttk.Frame(parent, padding=8)
+        frame.pack(fill=FILL_BOTH, expand=True)
+
+        # === SECTION CONNEXION ===
+        conn_frame = ttk.LabelFrame(frame, text="🔐 Connexion SSH au Raspberry Pi", padding=10)
+        conn_frame.pack(fill=FILL_X, pady=(0, 10))
+
+        # Info
+        info_label = ttk.Label(conn_frame,
+                              text="Connectez-vous au Raspberry Pi pour exécuter des commandes à distance",
+                              style="Small.TLabel",
+                              wraplength=500)
+        info_label.pack(pady=(0, 10))
+
+        # Ligne 1: Hostname
+        host_row = ttk.Frame(conn_frame)
+        host_row.pack(fill=FILL_X, pady=5)
+        ttk.Label(host_row, text="Hôte:", style="Small.TLabel", width=12).pack(side=SIDE_LEFT)
+        self.ssh_host_entry = ttk.Entry(host_row, width=25)
+        self.ssh_host_entry.insert(0, "PEI.local")
+        self.ssh_host_entry.pack(side=SIDE_LEFT, padx=5)
+        ttk.Label(host_row, text="(IP ou hostname du Raspberry)", style="Small.TLabel").pack(side=SIDE_LEFT, padx=5)
+
+        # Ligne 2: Username
+        user_row = ttk.Frame(conn_frame)
+        user_row.pack(fill=FILL_X, pady=5)
+        ttk.Label(user_row, text="Utilisateur:", style="Small.TLabel", width=12).pack(side=SIDE_LEFT)
+        self.ssh_user_entry = ttk.Entry(user_row, width=25)
+        self.ssh_user_entry.insert(0, "admin")
+        self.ssh_user_entry.pack(side=SIDE_LEFT, padx=5)
+
+        # Ligne 3: Password
+        pass_row = ttk.Frame(conn_frame)
+        pass_row.pack(fill=FILL_X, pady=5)
+        ttk.Label(pass_row, text="Mot de passe:", style="Small.TLabel", width=12).pack(side=SIDE_LEFT)
+        self.ssh_pass_entry = ttk.Entry(pass_row, width=25, show="●")
+        self.ssh_pass_entry.insert(0, "admin")
+        self.ssh_pass_entry.pack(side=SIDE_LEFT, padx=5)
+
+        # Bouton de connexion
+        btn_row = ttk.Frame(conn_frame)
+        btn_row.pack(fill=FILL_X, pady=10)
+
+        self.ssh_connect_btn = ttk.Button(btn_row, text="🔌 Connecter SSH", command=self._toggle_ssh_connection)
+        self.ssh_connect_btn.pack(side=SIDE_LEFT, padx=5)
+
+        self.ssh_test_btn = ttk.Button(btn_row, text="🧪 Test Connexion", command=self._test_ssh_connection)
+        self.ssh_test_btn.pack(side=SIDE_LEFT, padx=5)
+
+        # Statut de connexion
+        status_row = ttk.Frame(conn_frame)
+        status_row.pack(fill=FILL_X, pady=5)
+        ttk.Label(status_row, text="Statut:", style="Small.TLabel", width=12).pack(side=SIDE_LEFT)
+        self.ssh_connection_status = ttk.Label(status_row, text="❌ Déconnecté", foreground=COLORS['danger'])
+        self.ssh_connection_status.pack(side=SIDE_LEFT)
+
+        # === SECTION COMMANDES RAPIDES ===
+        cmd_frame = ttk.LabelFrame(frame, text="⚡ Commandes Rapides", padding=10)
+        cmd_frame.pack(fill=FILL_X, pady=(0, 10))
+
+        # Bouton principal de lancement du script de contrôle
+        launch_row = ttk.Frame(cmd_frame)
+        launch_row.pack(fill=FILL_X, pady=(0, 8))
+        self.ssh_launch_btn = ttk.Button(launch_row, text="🤖 Lancer control_robot.py",
+                                         command=self._launch_control_robot)
+        self.ssh_launch_btn.pack(side=SIDE_LEFT, padx=5)
+        self.ssh_stop_script_btn = ttk.Button(launch_row, text="⏹ Arrêter script",
+                                              command=self._stop_control_robot)
+        self.ssh_stop_script_btn.pack(side=SIDE_LEFT, padx=5)
+        self.ssh_script_status = ttk.Label(launch_row, text="Script: ⬜ Arrêté",
+                                           style="Small.TLabel")
+        self.ssh_script_status.pack(side=SIDE_LEFT, padx=10)
+
+        quick_cmds = [
+            ("📋 Lister fichiers (ls)", "ls -la"),
+            ("📂 Aller dans home", "cd ~"),
+            ("🛑 Arrêter processus Python", "pkill -f python"),
+            ("📊 Voir processus", "ps aux | grep python"),
+            ("💾 Espace disque", "df -h"),
+            ("🌡️ Température CPU", "vcgencmd measure_temp"),
+            ("🔄 Redémarrer", "sudo reboot"),
+        ]
+
+        grid_cmd = ttk.Frame(cmd_frame)
+        grid_cmd.pack(pady=5)
+
+        for idx, (label, cmd) in enumerate(quick_cmds):
+            row = idx // 2
+            col = idx % 2
+            btn = ttk.Button(grid_cmd, text=label, width=25,
+                           command=lambda c=cmd: self._send_ssh_command(c))
+            btn.grid(row=row, column=col, padx=5, pady=3)
+
+        # === SECTION TERMINAL ===
+        term_frame = ttk.LabelFrame(frame, text="💻 Terminal SSH", padding=10)
+        term_frame.pack(fill=FILL_BOTH, expand=True)
+
+        # Zone de texte
+        text_container = ttk.Frame(term_frame)
+        text_container.pack(fill=FILL_BOTH, expand=True)
+
+        self.ssh_terminal = tk.Text(text_container, height=15, wrap='word',
+                                   bg='#000000', fg='#00ff00',
+                                   font=('Consolas', 9))
+        self.ssh_terminal.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(text_container, orient='vertical', command=self.ssh_terminal.yview)
+        scrollbar.pack(side=SIDE_RIGHT, fill='y')
+        self.ssh_terminal['yscrollcommand'] = scrollbar.set
+
+        self.ssh_terminal.configure(state='disabled')
+
+        # Ligne de commande
+        input_row = ttk.Frame(term_frame)
+        input_row.pack(fill=FILL_X, pady=(10, 0))
+
+        ttk.Label(input_row, text="$", style="Accent.TLabel", width=2).pack(side=SIDE_LEFT)
+        self.ssh_command_entry = ttk.Entry(input_row)
+        self.ssh_command_entry.pack(side=SIDE_LEFT, fill=FILL_X, expand=True, padx=5)
+        self.ssh_command_entry.bind('<Return>', lambda e: self._send_ssh_command())
+
+        self.ssh_send_btn = ttk.Button(input_row, text="▶ Envoyer", command=self._send_ssh_command)
+        self.ssh_send_btn.pack(side=SIDE_LEFT)
+
+        # Bouton clear
+        clear_btn = ttk.Button(input_row, text="🗑️ Effacer", command=self._clear_ssh_terminal, width=10)
+        clear_btn.pack(side=SIDE_LEFT, padx=5)
+
+        # Message initial
+        self._log_ssh("=== Terminal SSH Raspberry Pi ===\n")
+        self._log_ssh("💡 Astuce: Connectez-vous d'abord avec le bouton '🔌 Connecter SSH'\n")
+        self._log_ssh("\nSi vous voyez 'paramiko n\'est pas installé', installez-le: `python -m pip install paramiko`\n")
+
+        # Désactiver si SSH non disponible
+        if not SSH_AVAILABLE:
+            self._disable_ssh_controls()
+            self._log_ssh("❌ Module paramiko non disponible\n")
+            self._log_ssh("📦 Installez-le avec: pip install paramiko\n")
+
+    def _disable_ssh_controls(self):
+        """Désactive tous les contrôles SSH si le module n'est pas disponible"""
+        try:
+            self.ssh_connect_btn.config(state='disabled')
+            self.ssh_test_btn.config(state='disabled')
+            self.ssh_send_btn.config(state='disabled')
+        except:
+            pass
+
+    def _log_ssh(self, message: str, color: str = '#00ff00'):
+        """Ajoute un message au terminal SSH"""
+        try:
+            self.ssh_terminal.configure(state='normal')
+            self.ssh_terminal.insert(tk.END, message)
+            self.ssh_terminal.see(tk.END)
+            self.ssh_terminal.configure(state='disabled')
+        except:
+            pass
+
+    def _clear_ssh_terminal(self):
+        """Efface le terminal SSH"""
+        try:
+            self.ssh_terminal.configure(state='normal')
+            self.ssh_terminal.delete(1.0, tk.END)
+            self.ssh_terminal.configure(state='disabled')
+        except:
+            pass
+
+    def _toggle_ssh_connection(self):
+        """Connecte/déconnecte du Raspberry via SSH"""
+        if not SSH_AVAILABLE:
+            messagebox.showerror("Erreur", "Module paramiko non disponible\nInstallez-le avec: pip install paramiko")
+            return
+
+        if self._ssh_connected and self.ssh_runner:
+            # Déconnexion
+            try:
+                self.ssh_runner.close()
+            except:
+                pass
+            self.ssh_runner = None
+            self._ssh_connected = False
+            self.ssh_connect_btn.config(text="🔌 Connecter SSH")
+            self.ssh_connection_status.config(text="❌ Déconnecté", foreground=COLORS['danger'])
+            self.ssh_status_label.config(text="SSH: ❌", foreground=COLORS['danger'])
+            self._log_ssh("\n🔌 Déconnecté du Raspberry Pi\n")
+        else:
+            # Connexion
+            host = self.ssh_host_entry.get().strip()
+            user = self.ssh_user_entry.get().strip()
+            password = self.ssh_pass_entry.get()
+
+            if not host or not user:
+                messagebox.showwarning("Attention", "Veuillez remplir l'hôte et l'utilisateur")
+                return
+
+            self._log_ssh(f"\n🔌 Connexion à {user}@{host}...\n")
+
+            try:
+                self.ssh_runner = SSHRunner(hostname=host, username=user, password=password)
+                self.ssh_runner.connect()
+
+                self._ssh_connected = True
+                self.ssh_connect_btn.config(text="🔌 Déconnecter")
+                self.ssh_connection_status.config(text="✅ Connecté", foreground=COLORS['positive'])
+                self.ssh_status_label.config(text="SSH: ✅", foreground=COLORS['positive'])
+                self._log_ssh(f"✅ Connecté avec succès à {host}!\n")
+                self._log_ssh("💡 Vous pouvez maintenant envoyer des commandes\n\n")
+
+            except Exception as e:
+                messagebox.showerror("Erreur de connexion SSH", f"Impossible de se connecter:\n{e}")
+                self._log_ssh(f"❌ Erreur: {e}\n")
+                self.ssh_runner = None
+                self._ssh_connected = False
+
+    def _launch_control_robot(self):
+        """Lance control_robot.py sur le Pi avec stdin ouvert pour le contrôle."""
+        if not self._ssh_connected or not self.ssh_runner:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord via SSH")
+            return
+        if self._ssh_process_stdin is not None:
+            messagebox.showinfo("Déjà lancé", "Le script est déjà en cours d'exécution.\nArrêtez-le d'abord.")
+            return
+
+        self._log_ssh("\n🤖 Lancement de control_robot.py sur le Pi...\n")
+        try:
+            stdin, stdout, stderr = self.ssh_runner._client.exec_command(
+                "cd ~ && python control_robot.py", timeout=None
+            )
+            self._ssh_process_stdin = stdin
+
+            # Lecture de stdout en arrière-plan
+            import threading
+            def read_output():
+                try:
+                    for line in iter(stdout.readline, ""):
+                        if not line:
+                            break
+                        self.root.after(0, lambda l=line: self._log_ssh(l))
+                except Exception:
+                    pass
+                self.root.after(0, self._on_control_robot_stopped)
+
+            threading.Thread(target=read_output, daemon=True).start()
+
+            self.ssh_script_status.config(text="Script: 🟢 En cours")
+            self._log_ssh("✅ Script lancé ! Les boutons de contrôle envoient maintenant via SSH.\n\n")
+
+        except Exception as e:
+            self._log_ssh(f"❌ Erreur de lancement: {e}\n")
+            self._ssh_process_stdin = None
+
+    def _stop_control_robot(self):
+        """Arrête control_robot.py en fermant stdin (envoie 'quit')."""
+        if self._ssh_process_stdin is None:
+            return
+        try:
+            self._ssh_process_stdin.write("quit\n")
+            self._ssh_process_stdin.flush()
+            self._ssh_process_stdin.channel.shutdown_write()
+        except Exception:
+            pass
+        self._ssh_process_stdin = None
+        self.ssh_script_status.config(text="Script: ⬜ Arrêté")
+        self._log_ssh("\n⏹ Script arrêté.\n")
+
+    def _on_control_robot_stopped(self):
+        """Appelé quand le script distant se termine."""
+        self._ssh_process_stdin = None
+        try:
+            self.ssh_script_status.config(text="Script: ⬜ Arrêté")
+            self._log_ssh("\n⚠️ Le script control_robot.py s'est terminé.\n")
+        except Exception:
+            pass
+
+    def _test_ssh_connection(self):
+        """Test la connexion SSH avec une commande simple"""
+        if not self._ssh_connected or not self.ssh_runner:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord via SSH")
+            return
+
+        self._log_ssh("\n🧪 Test de connexion...\n")
+        try:
+            stdin, stdout, stderr = self.ssh_runner._client.exec_command("echo 'Test OK' && whoami && hostname")
+            output = stdout.read().decode()
+            errors = stderr.read().decode()
+
+            if output:
+                self._log_ssh(f"✅ Test réussi!\n{output}\n")
+            if errors:
+                self._log_ssh(f"⚠️ Erreurs:\n{errors}\n")
+
+        except Exception as e:
+            self._log_ssh(f"❌ Erreur lors du test: {e}\n")
+            messagebox.showerror("Erreur", f"Erreur lors du test: {e}")
+
+    def _send_ssh_command(self, command: str = None):
+        """Envoie une commande SSH"""
+        if not self._ssh_connected or not self.ssh_runner:
+            messagebox.showwarning("Non connecté", "Connectez-vous d'abord via SSH")
+            return
+
+        # Si pas de commande fournie, prendre celle de l'entry
+        if command is None:
+            command = self.ssh_command_entry.get().strip()
+            if not command:
+                return
+            self.ssh_command_entry.delete(0, tk.END)
+
+        self._log_ssh(f"\n$ {command}\n")
+
+        try:
+            stdin, stdout, stderr = self.ssh_runner._client.exec_command(command)
+            output = stdout.read().decode()
+            errors = stderr.read().decode()
+
+            if output:
+                self._log_ssh(output)
+            if errors:
+                self._log_ssh(f"⚠️ {errors}", '#ff6b6b')
+
+            self._log_ssh("\n")
+
+        except Exception as e:
+            self._log_ssh(f"❌ Erreur: {e}\n", '#ff6b6b')
+            messagebox.showerror("Erreur", f"Erreur lors de l'exécution:\n{e}")
+
     def _on_state_update(self, state: RobotState):
         self._last_state = state
 
@@ -604,6 +983,7 @@ class RobotInterface:
         self._update_sensors_panel(state)
         self._update_actuators_panel(state)
         self._update_detection_panel(state)
+        self._update_connection_indicators()  # Nouveau
 
     def _update_header(self, state: RobotState):
         if state.is_connected:
@@ -714,6 +1094,25 @@ class RobotInterface:
             self.aruco_status_label.config(text="❌ Non détecté", foreground=COLORS['danger'])
             self.aruco_ids_label.config(text="-")
 
+    def _update_connection_indicators(self):
+        """Met à jour les indicateurs de connexion SSH et Série dans le header"""
+        # Statut SSH
+        if self._ssh_connected:
+            self.ssh_status_label.config(text="SSH: ✅", foreground=COLORS['positive'])
+        else:
+            self.ssh_status_label.config(text="SSH: ❌", foreground=COLORS['danger'])
+
+        # Statut Série
+        if SERIAL_AVAILABLE and self.robot_serial and self.robot_serial.is_connected():
+            self.serial_status_header.config(text="Série: ✅", foreground=COLORS['positive'])
+            # Mettre à jour aussi le statut dans le panneau de contrôle
+            if hasattr(self, 'serial_status'):
+                self.serial_status.config(text="✅ Connecté", foreground=COLORS['positive'])
+        else:
+            self.serial_status_header.config(text="Série: ❌", foreground=COLORS['danger'])
+            if hasattr(self, 'serial_status'):
+                self.serial_status.config(text="❌ Déconnecté", foreground=COLORS['danger'])
+
     def _on_emergency_stop(self):
         self.state_manager.set_emergency_stop(True)
         # Arrêter aussi le robot physique si connecté
@@ -742,6 +1141,12 @@ class RobotInterface:
         # Déconnecter le port série si connecté
         if SERIAL_AVAILABLE and self.robot_serial and self.robot_serial.is_connected():
             self.robot_serial.disconnect()
+        # Déconnecter SSH si connecté
+        if SSH_AVAILABLE and self._ssh_connected and self.ssh_runner:
+            try:
+                self.ssh_runner.close()
+            except:
+                pass
         self.root.destroy()
 
     def run(self):

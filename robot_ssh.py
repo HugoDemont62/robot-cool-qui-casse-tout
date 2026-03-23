@@ -7,7 +7,7 @@ utilisée par `main.py`.
 
 Remarques:
 - Par défaut: hostname=PEI.local, username=admin, password=admin
-- Lance `python3 <remote_path>` en arrière-plan via nohup et enregistre
+- Lance `python <remote_path>` en arrière-plan via nohup et enregistre
   la sortie dans ~/test_remote_<timestamp>.log
 - Lève des exceptions si la connexion ou l'exécution échoue.
 """
@@ -38,7 +38,7 @@ class SSHRunner:
 
     def connect(self) -> None:
         if not PARAMIKO_AVAILABLE:
-            raise RuntimeError("paramiko n'est pas installé; ajoutez-le à requirements.txt")
+            raise RuntimeError("paramiko n'est pas installé. Installez-le avec :\n    python -m pip install paramiko\nou\n    python -m pip install -r requirements.txt\nPuis relancez l'application.")
         if self._client is not None:
             return
         client = paramiko.SSHClient()
@@ -55,9 +55,9 @@ class SSHRunner:
         logfile = f"~/{logfile_prefix}_{timestamp}.log"
         # Si remote_path est absolu, n'effectue pas cd ~
         if os.path.isabs(remote_path):
-            cmd = f"nohup python3 {remote_path} > {logfile} 2>&1 &"
+            cmd = f"nohup python {remote_path} > {logfile} 2>&1 &"
         else:
-            cmd = f"cd ~ && nohup python3 {remote_path} > {logfile} 2>&1 &"
+            cmd = f"cd ~ && nohup python {remote_path} > {logfile} 2>&1 &"
         stdin, stdout, stderr = self._client.exec_command(cmd)
         # On retourne le chemin du logfile pour information.
         return logfile
@@ -112,7 +112,7 @@ class SSHInteractive:
 
     def connect(self) -> None:
         if not PARAMIKO_AVAILABLE:
-            raise RuntimeError("paramiko n'est pas installé; ajoutez-le à requirements.txt")
+            raise RuntimeError("paramiko n'est pas installé. Installez-le avec :\n    python -m pip install paramiko\nou\n    python -m pip install -r requirements.txt\nPuis relancez l'application.")
         if self._client is not None:
             return
         client = paramiko.SSHClient()

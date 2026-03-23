@@ -9,7 +9,7 @@ Motor backRight = {46, 42, 44};
 Motor backLeft = {43, 47, 45};
 
 // --- Config moteurs DRV8825 ---
-struct StepperMotor { int steps; int dir; int enable};
+struct StepperMotor { int steps; int dir; int enablePin; };
 StepperMotor StepperHorizontal = {39, 41, 37}; // Moteur horizontal
 StepperMotor StepperClamp = {24, 22, 26}; // Moteur de pince
 StepperMotor StepperHeight = {33, 35, 31}; // Moteur de hauteur
@@ -55,13 +55,13 @@ void setup() {
   pinMode(StepperClamp.steps, OUTPUT);
   pinMode(StepperHeight.steps, OUTPUT);
 
-  pinMode(StepperHorizontal.enable, OUTPUT);
-  pinMode(StepperClamp.enable, OUTPUT);
-  pinMode(StepperHeight.enable, OUTPUT);
+  pinMode(StepperHorizontal.enablePin, OUTPUT);
+  pinMode(StepperClamp.enablePin, OUTPUT);
+  pinMode(StepperHeight.enablePin, OUTPUT);
 
-  digitalWrite(StepperHorizontal.enable, HIGH);
-  digitalWrite(StepperClamp.enable, HIGH);
-  digitalWrite(StepperHeight.enable, HIGH);
+  digitalWrite(StepperHorizontal.enablePin, HIGH);
+  digitalWrite(StepperClamp.enablePin, HIGH);
+  digitalWrite(StepperHeight.enablePin, HIGH);
 
   // Config 28BYJ
   for (int i=0; i<4; i++) {
