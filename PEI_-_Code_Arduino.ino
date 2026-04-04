@@ -97,17 +97,17 @@ void setMotor(Motor m, int speed) {
   if (speed > 0) {
     digitalWrite(m.pinForward, HIGH);
     digitalWrite(m.pinBackward, LOW);
-    analogWrite(m.pinPWM, speed);
-  } 
+    digitalWrite(m.pinPWM, HIGH);
+  }
   else if (speed < 0) {
     digitalWrite(m.pinForward, LOW);
     digitalWrite(m.pinBackward, HIGH);
-    analogWrite(m.pinPWM, -speed);
-  } 
+    digitalWrite(m.pinPWM, HIGH);
+  }
   else {
     digitalWrite(m.pinForward, LOW);
     digitalWrite(m.pinBackward, LOW);
-    analogWrite(m.pinPWM, 0);
+    digitalWrite(m.pinPWM, LOW);
   }
 }
 
@@ -199,13 +199,15 @@ void backwardLeft(int speed) {
 // FONCTIONS STEPPER DRV8825
 // ===============================
 void moveStepper(StepperMotor motor, long steps, bool direction) {
+  digitalWrite(motor.enablePin, LOW);  // DRV8825 : LOW = activé
   digitalWrite(motor.dir, direction ? HIGH : LOW);
   for (long i = 0; i < steps; i++) {
     digitalWrite(motor.steps, HIGH);
-    delayMicroseconds(1000); // Ajuster la vitesse ici
+    delayMicroseconds(1000);
     digitalWrite(motor.steps, LOW);
-    delayMicroseconds(1000); // Ajuster la vitesse ici
+    delayMicroseconds(1000);
   }
+  digitalWrite(motor.enablePin, HIGH); // Désactiver après le mouvement
 }
 
 // ===============================
