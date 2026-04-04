@@ -3,10 +3,10 @@
 // --- Config moteurs ---
 struct Motor { int pinForward; int pinBackward; int pinPWM; };
 
-Motor frontRight = {52, 48, 50}; 
-Motor frontLeft = {49, 53, 51}; 
-Motor backRight = {46, 42, 44}; 
-Motor backLeft = {43, 47, 45};
+Motor frontRight = {43, 47, 45};  // avant-droit
+Motor frontLeft  = {46, 42, 44};  // avant-gauche
+Motor backRight  = {49, 53, 51};  // arrière-droit
+Motor backLeft   = {52, 48, 50};  // arrière-gauche
 
 // --- Config moteurs DRV8825 ---
 struct StepperMotor { int steps; int dir; int enablePin; };

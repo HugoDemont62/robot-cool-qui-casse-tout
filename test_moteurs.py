@@ -45,18 +45,8 @@ def run(arduino):
     try:
         while True:
             stdscr.clear()
-            stdscr.addstr(0, 0, "═══════════════════════════════════════════")
-            stdscr.addstr(1, 0, "  TEST MOTEURS — identifie chaque roue")
-            stdscr.addstr(2, 0, "═══════════════════════════════════════════")
-            stdscr.addstr(3, 0, "  1 → teste moteur A (frontRight code)")
-            stdscr.addstr(4, 0, "  2 → teste moteur B (frontLeft  code)")
-            stdscr.addstr(5, 0, "  3 → teste moteur C (backRight  code)")
-            stdscr.addstr(6, 0, "  4 → teste moteur D (backLeft   code)")
-            stdscr.addstr(7, 0, "  Espace → STOP")
-            stdscr.addstr(8, 0, "  ESC   → Quitter")
-            stdscr.addstr(9, 0, "───────────────────────────────────────────")
-            stdscr.addstr(10, 0, "  Note quelle roue bouge pour chaque chiffre")
-            stdscr.addstr(11, 0, "  et dis-le à Claude !")
+            stdscr.addstr(0, 0, "TEST MOTEURS")
+            stdscr.addstr(1, 0, "1/2/3/4=test  Espace=stop  ESC=quitter")
             stdscr.refresh()
 
             k = stdscr.getch()
@@ -67,7 +57,7 @@ def run(arduino):
                 stop()
             elif k in moteurs:
                 nom, fw, bw, pwm = moteurs[k]
-                stdscr.addstr(13, 0, f"  >> {nom} <<")
+                stdscr.addstr(2, 0, f">> {nom[:38]}")
                 stdscr.refresh()
                 moteur(fw, bw, pwm, sens=1)
                 time.sleep(1.5)
