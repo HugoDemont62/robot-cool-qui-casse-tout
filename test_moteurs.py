@@ -42,11 +42,20 @@ def run(arduino):
         ord('4'): ("Moteur D  (code: backLeft)   pins 43/47/45", 43, 47, 45),
     }
 
+    def clamp_cmd(cmd):
+        arduino.write(f"{cmd}\n".encode())
+        arduino.readline()
+
     try:
         while True:
             stdscr.clear()
-            stdscr.addstr(0, 0, "TEST MOTEURS")
-            stdscr.addstr(1, 0, "1/2/3/4=test  Espace=stop  ESC=quitter")
+            stdscr.addstr(0, 0, "TEST MOTEURS & PINCE")
+            stdscr.addstr(1, 0, "--- Roues ---")
+            stdscr.addstr(2, 0, "1/2/3/4=test roue  Espace=stop")
+            stdscr.addstr(3, 0, "--- Pince ---")
+            stdscr.addstr(4, 0, "u=monter   d=descendre  g=saisir  r=relacher")
+            stdscr.addstr(5, 0, "o=origine  f=find origin  t=rotation")
+            stdscr.addstr(6, 0, "ESC=quitter")
             stdscr.refresh()
 
             k = stdscr.getch()
@@ -57,11 +66,39 @@ def run(arduino):
                 stop()
             elif k in moteurs:
                 nom, fw, bw, pwm = moteurs[k]
-                stdscr.addstr(2, 0, f">> {nom[:38]}")
+                stdscr.addstr(7, 0, f">> {nom[:38]}")
                 stdscr.refresh()
                 moteur(fw, bw, pwm, sens=1)
                 time.sleep(1.5)
                 stop()
+            elif k == ord('u'):
+                stdscr.addstr(7, 0, ">> Pince : monter")
+                stdscr.refresh()
+                clamp_cmd("ClampUp")
+            elif k == ord('d'):
+                stdscr.addstr(7, 0, ">> Pince : descendre")
+                stdscr.refresh()
+                clamp_cmd("ClampDown")
+            elif k == ord('g'):
+                stdscr.addstr(7, 0, ">> Pince : saisir")
+                stdscr.refresh()
+                clamp_cmd("ClampGrab")
+            elif k == ord('r'):
+                stdscr.addstr(7, 0, ">> Pince : relacher")
+                stdscr.refresh()
+                clamp_cmd("ClampRelease")
+            elif k == ord('o'):
+                stdscr.addstr(7, 0, ">> Pince : reset origine")
+                stdscr.refresh()
+                clamp_cmd("ClampOrigin")
+            elif k == ord('f'):
+                stdscr.addstr(7, 0, ">> Pince : recherche origine...")
+                stdscr.refresh()
+                clamp_cmd("ClampFindOrigin")
+            elif k == ord('t'):
+                stdscr.addstr(7, 0, ">> Pince : rotation")
+                stdscr.refresh()
+                clamp_cmd("ClampRotate")
 
             time.sleep(0.05)
 

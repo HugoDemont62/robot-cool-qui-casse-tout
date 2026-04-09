@@ -3,10 +3,11 @@
 // --- Config moteurs ---
 struct Motor { int pinForward; int pinBackward; int pinPWM; };
 
-Motor frontRight = {43, 47, 45};  // avant-droit
-Motor frontLeft  = {46, 42, 44};  // avant-gauche
-Motor backRight  = {49, 53, 51};  // arrière-droit
-Motor backLeft   = {52, 48, 50};  // arrière-gauche
+
+Motor frontRight = {52, 48, 50};
+Motor frontLeft = {49, 53, 51};
+Motor backRight = {46, 42, 44};
+Motor backLeft = {43, 47, 45};
 
 // --- Config moteurs DRV8825 ---
 struct StepperMotor { int steps; int dir; int enablePin; };
@@ -124,12 +125,15 @@ void stopAll() {
 // MOUVEMENTS MÉCANUM
 // ===============================
 
+// NOTE : les moteurs gauche (frontLeft, backLeft) sont câblés en miroir
+// donc leur sens est inversé dans toutes les fonctions.
+
 // Avancer
 void forward(int speed) {
-  setMotor(frontRight, speed);
-  setMotor(frontLeft, speed);
-  setMotor(backRight, speed);
-  setMotor(backLeft, speed);
+  setMotor(frontRight, -speed);  // inward avec +, inversé
+  setMotor(frontLeft,   speed);  // outward avec +, correct
+  setMotor(backRight,   speed);  // vers avant avec +, correct
+  setMotor(backLeft,   -speed);  // backward avec +, inversé
 }
 
 // Reculer
@@ -139,10 +143,10 @@ void backward(int speed) {
 
 // Translation droite
 void right(int speed) {
-  setMotor(frontRight,  speed);
+  setMotor(frontRight, -speed);
   setMotor(frontLeft,  -speed);
-  setMotor(backRight, -speed);
-  setMotor(backLeft,   speed);
+  setMotor(backRight,  -speed);
+  setMotor(backLeft,   -speed);
 }
 
 // Translation gauche
@@ -153,8 +157,8 @@ void left(int speed) {
 // Rotation horaire
 void rotateCW(int speed) {
   setMotor(frontRight,  speed);
-  setMotor(frontLeft,  -speed);
-  setMotor(backRight,   speed);
+  setMotor(frontLeft,   speed);
+  setMotor(backRight,  -speed);
   setMotor(backLeft,   -speed);
 }
 
@@ -165,34 +169,34 @@ void rotateCCW(int speed) {
 
 // Diagonale avant droite
 void forwardRight(int speed) {
-  setMotor(frontRight, 0);
-  setMotor(frontLeft, speed);
-  setMotor(backRight, speed);
-  setMotor(backLeft, 0);
+  setMotor(frontRight, -speed);
+  setMotor(frontLeft,   0);
+  setMotor(backRight,   0);
+  setMotor(backLeft,   -speed);
 }
 
 // Diagonale avant gauche
 void forwardLeft(int speed) {
-  setMotor(frontRight, speed);
-  setMotor(frontLeft, 0);
-  setMotor(backRight, 0);
-  setMotor(backLeft, speed);
+  setMotor(frontRight,  0);
+  setMotor(frontLeft,   speed);
+  setMotor(backRight,   speed);
+  setMotor(backLeft,    0);
 }
 
 // Diagonale arrière droite
 void backwardRight(int speed) {
-  setMotor(frontRight, -speed);
-  setMotor(frontLeft, 0);
-  setMotor(backRight, 0);
-  setMotor(backLeft, -speed);
+  setMotor(frontRight,  0);
+  setMotor(frontLeft,  -speed);
+  setMotor(backRight,  -speed);
+  setMotor(backLeft,    0);
 }
 
 // Diagonale arrière gauche
 void backwardLeft(int speed) {
-  setMotor(frontRight, 0);
-  setMotor(frontLeft, -speed);
-  setMotor(backRight, -speed);
-  setMotor(backLeft, 0);
+  setMotor(frontRight,  speed);
+  setMotor(frontLeft,   0);
+  setMotor(backRight,   0);
+  setMotor(backLeft,    speed);
 }
 
 // ===============================
