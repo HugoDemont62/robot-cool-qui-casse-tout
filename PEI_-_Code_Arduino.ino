@@ -60,9 +60,9 @@ void setup() {
   pinMode(StepperClamp.enablePin, OUTPUT);
   pinMode(StepperHeight.enablePin, OUTPUT);
 
-  digitalWrite(StepperHorizontal.enablePin, HIGH);
-  digitalWrite(StepperClamp.enablePin, HIGH);
-  digitalWrite(StepperHeight.enablePin, HIGH);
+  digitalWrite(StepperHorizontal.enablePin, LOW);
+  digitalWrite(StepperClamp.enablePin, LOW);
+  digitalWrite(StepperHeight.enablePin, LOW);
 
   // Config 28BYJ
   for (int i=0; i<4; i++) {
