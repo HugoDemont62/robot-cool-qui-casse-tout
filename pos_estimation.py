@@ -105,7 +105,7 @@ def main() -> None:
 
     # Lecture des arguments (calibration, caméra, mode verbose)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--calib', default='calibration_chessboard.yaml', help='Fichier de calibration')
+    parser.add_argument('--calib', default='calibration_Svpro8MP.yaml', help='Fichier de calibration')
     parser.add_argument('--cam', type=int, default=0, help='Index de la caméra')
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
